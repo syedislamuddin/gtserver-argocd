@@ -1,12 +1,16 @@
-docker buildx build --platform linux/amd64 -t europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api . --load
+# docker buildx build --platform linux/amd64 -t europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api . --load
 
-docker push europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api
+# docker push europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api
+
+# build with cloud build in gp2-code-test-env project for testing
+gcloud builds submit --tag europe-west4-docker.pkg.dev/gp2-code-test-env/genotools/genotools-api .
 
 # gcloud run deploy genotools-api \
 #   --image europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api \
 #   --platform managed \
 #   --region europe-west4 \
 #   --service-account genotools-server@gp2-release-terra.iam.gserviceaccount.com
+
 
 gcloud run deploy genotools-api \
   --image europe-west4-docker.pkg.dev/gp2-release-terra/genotools/genotools-api \
