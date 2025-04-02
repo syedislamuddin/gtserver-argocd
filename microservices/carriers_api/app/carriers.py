@@ -16,6 +16,25 @@ def genotype_to_string(g, snp_allele):
         return ":/:"
     
 
+def extract_variant_frequencies(geno_path, temp_snps_path, plink_out):
+    """
+    Extract variant frequencies using plink2 from genotype data.
+    
+    Args:
+        geno_path (str): Path to the plink2 pfile prefix (without extensions)
+        temp_snps_path (str): Path to file containing SNPs to extract
+        plink_out (str): Prefix for output files
+        
+    Returns:
+        pd.DataFrame: Allele frequency data with SNP column renamed
+    """
+    extract_cmd = f"plink2 --pfile {geno_path} --extract {temp_snps_path} --export Av --freq --out {plink_out}"
+    subprocess.run(extract_cmd, shell=True, check=True)
+    freq = pd.read_csv(f"{plink_out}.afreq", sep='\t')
+    freq.rename(columns={'ID':'SNP'}, inplace=True)
+    
+    return freq
+
 def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_dfs: bool = False) -> dict:
     """
     Extract carrier information for given SNPs from a PLINK2 dataset.
@@ -30,46 +49,46 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
         dict: Paths to generated carrier files and optionally the DataFrames themselves
     """
     snp_df = pd.read_csv(snplist_path)
-    
-    temp_snps_path = f"{geno_path}_temp_snps.txt"
+
+    temp_snps_path = f"{out_path}_temp_snps.txt"
     snp_df['id'].to_csv(temp_snps_path, header=False, index=False)
     
-    plink_out = f"{geno_path}_snps"
-    extract_cmd = f"plink2 --pfile {geno_path} --extract {temp_snps_path} --export Av --freq --out {plink_out}"
-    subprocess.run(extract_cmd, shell=True, check=True)
+    plink_out = f"{out_path}_snps"
+    
+    freq = extract_variant_frequencies(geno_path, temp_snps_path, plink_out)
     
     traw = pd.read_csv(f"{plink_out}.traw", sep='\t')
     traw_merged = snp_df.merge(traw, how='left', left_on='id', right_on='SNP')
-    
-    # eventually accept file with only id, chr, pos, a1, a2 and merge results later
-    colnames = [
-        'id', 'rsid', 'hg19', 'hg38', 'ancestry',
-        'CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT',
-        'variant', 'snp_name', 'locus', 'snp_name_full'
-    ]
-    var_cols = [x for x in colnames if x not in ['snp_name_full']]
+    # print(traw_merged.columns)
+    # # eventually accept file with only id, chr, pos, a1, a2 and merge results later
+    # colnames = [
+    #     'id', 'rsid', 'hg19', 'hg38', 'ancestry',
+    #     'CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT',
+    #     'variant', 'snp_name', 'locus', 'snp_name_full'
+    # ]
+    colnames = ['id', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
+    # var_cols = [x for x in colnames if x not in ['snp_name_full']]
     sample_cols = list(traw_merged.drop(columns=colnames).columns)
-    
-    # Process final traw data
+    # print(sample_cols[0], sample_cols[-1])
+    # # Process final traw data
     traw_final = traw_merged.loc[:, colnames + sample_cols]
     
     # Create string format output
     traw_out = traw_final.copy()
     traw_out[sample_cols] = traw_out.apply(
-        lambda row: [genotype_to_string(row[col], row['snp_name']) for col in sample_cols],
+        lambda row: [genotype_to_string(row[col], row['id']) for col in sample_cols],
         axis=1,
         result_type='expand'
     )
-    
+    print(traw_out.head())
+
     # Process and save frequency info
-    freq = pd.read_csv(f"{plink_out}.afreq", sep='\t')
-    freq.rename(columns={'ID':'SNP'}, inplace=True)
-    var_info_df = traw_final.loc[:,var_cols]
+    var_info_df = traw_final.loc[:, colnames]
     var_info_df = var_info_df.merge(freq, how='left', on='SNP')
     var_info_df.to_csv(f"{out_path}_var_info.csv", index=False)
     
     # Process and save string format
-    carriers_string = traw_out.drop(columns=var_cols).set_index('snp_name_full').T.reset_index()
+    carriers_string = traw_out.drop(columns=colnames).set_index('id').T.reset_index()
     carriers_string.columns.name = None
     carriers_string = carriers_string.fillna('./.')
     carriers_string = carriers_string.astype(str)
@@ -77,7 +96,7 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
     carriers_string.to_csv(f"{out_path}_carriers_string.csv", index=False)
     
     # Process and save integer format
-    carriers_int = traw_final.drop(columns=var_cols).set_index('snp_name_full').T.reset_index()
+    carriers_int = traw_final.drop(columns=colnames).set_index('id').T.reset_index()
     carriers_int.columns.name = None
     carriers_int.rename(columns={'index':'IID'}, inplace=True)
     carriers_int.to_csv(f"{out_path}_carriers_int.csv", index=False)
