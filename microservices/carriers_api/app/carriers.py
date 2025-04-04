@@ -35,7 +35,7 @@ def extract_variant_frequencies(geno_path, temp_snps_path, plink_out):
     
     return freq
 
-def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_dfs: bool = False) -> dict:
+def extract_carriers(geno_path: str, snplist_path: str, out_path: str) -> dict:
     """
     Extract carrier information for given SNPs from a PLINK2 dataset.
     
@@ -59,18 +59,12 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
     
     traw = pd.read_csv(f"{plink_out}.traw", sep='\t')
     traw_merged = snp_df.merge(traw, how='left', left_on='id', right_on='SNP')
-    # print(traw_merged.columns)
-    # # eventually accept file with only id, chr, pos, a1, a2 and merge results later
-    # colnames = [
-    #     'id', 'rsid', 'hg19', 'hg38', 'ancestry',
-    #     'CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT',
-    #     'variant', 'snp_name', 'locus', 'snp_name_full'
-    # ]
+
     colnames = ['id', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
-    # var_cols = [x for x in colnames if x not in ['snp_name_full']]
+    var_cols = [x for x in colnames if x not in ['id']]
     sample_cols = list(traw_merged.drop(columns=colnames).columns)
-    # print(sample_cols[0], sample_cols[-1])
-    # # Process final traw data
+    
+    # Process final traw data
     traw_final = traw_merged.loc[:, colnames + sample_cols]
     
     # Create string format output
@@ -80,7 +74,6 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
         axis=1,
         result_type='expand'
     )
-    print(traw_out.head())
 
     # Process and save frequency info
     var_info_df = traw_final.loc[:, colnames]
@@ -88,7 +81,7 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
     var_info_df.to_csv(f"{out_path}_var_info.csv", index=False)
     
     # Process and save string format
-    carriers_string = traw_out.drop(columns=colnames).set_index('id').T.reset_index()
+    carriers_string = traw_out.drop(columns=var_cols).set_index('id').T.reset_index()
     carriers_string.columns.name = None
     carriers_string = carriers_string.fillna('./.')
     carriers_string = carriers_string.astype(str)
@@ -96,7 +89,7 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
     carriers_string.to_csv(f"{out_path}_carriers_string.csv", index=False)
     
     # Process and save integer format
-    carriers_int = traw_final.drop(columns=colnames).set_index('id').T.reset_index()
+    carriers_int = traw_final.drop(columns=var_cols).set_index('id').T.reset_index()
     carriers_int.columns.name = None
     carriers_int.rename(columns={'index':'IID'}, inplace=True)
     carriers_int.to_csv(f"{out_path}_carriers_int.csv", index=False)
@@ -109,53 +102,49 @@ def extract_carriers(geno_path: str, snplist_path: str, out_path: str, return_df
         'carriers_int': f"{out_path}_carriers_int.csv"
     }
     
-    if return_dfs:
-        result.update({
-            'var_info_df': var_info_df,
-            'carriers_string_df': carriers_string,
-            'carriers_int_df': carriers_int
-        })
+    # if return_dfs:
+    #     result.update({
+    #         'var_info_df': var_info_df,
+    #         'carriers_string_df': carriers_string,
+    #         'carriers_int_df': carriers_int
+    #     })
     
     return result
 
 
-def combine_carrier_files(results_by_label: dict, key_file: str, out_path: str, temp_dir: str) -> dict:
+def combine_carrier_files(results_by_label: dict, key_file: str, out_path: str) -> dict:
     """
     Combine carrier files from multiple ancestry labels into consolidated output files.
     
     Args:
         results_by_label: Dictionary mapping ancestry labels to their extract_carriers results
         key_file: Path to key file containing study information
-        out_path: Full GCS path including desired prefix
-        temp_dir: Temporary directory to store files before GCS upload
+        out_path: Path prefix for output files (will generate {out_path}_string.csv, etc.)
+        temp_dir: Deprecated parameter, kept for backward compatibility
     
     Returns:
-        dict: Paths to local temporary files
+        dict: Paths to generated output files
     """
     carriers_string_full = pd.DataFrame()
     carriers_int_full = pd.DataFrame()
-    
+    var_info_full = pd.DataFrame()
+
     # Get base variant info from first label and drop frequency columns
     var_info_base = next(iter(results_by_label.values()))['var_info_df' if 'var_info_df' in next(iter(results_by_label.values())) else 'var_info']
     if isinstance(var_info_base, str):
         var_info_base = pd.read_csv(var_info_base)
     freq_cols = ['ALT_FREQS', 'OBS_CT']
     var_info_base = var_info_base.drop(columns=freq_cols, errors='ignore')
+    var_info_base.drop_duplicates(inplace=True)
     
     # Read key file
     key = pd.read_csv(key_file)
     
     # Process each ancestry label's results
     for label, results in results_by_label.items():
-        # Get DataFrames (either directly or from files)
-        if 'var_info_df' in results:
-            label_var_info = results['var_info_df']
-            carriers_string = results['carriers_string_df']
-            carriers_int = results['carriers_int_df']
-        else:
-            label_var_info = pd.read_csv(results['var_info'])
-            carriers_string = pd.read_csv(results['carriers_string'])
-            carriers_int = pd.read_csv(results['carriers_int'])
+        label_var_info = pd.read_csv(results['var_info'])
+        carriers_string = pd.read_csv(results['carriers_string'])
+        carriers_int = pd.read_csv(results['carriers_int'])
         
         # Add frequency data for this population
         var_info_base[f'ALT_FREQS_{label}'] = label_var_info['ALT_FREQS']
@@ -173,7 +162,9 @@ def combine_carrier_files(results_by_label: dict, key_file: str, out_path: str, 
     
     # Get variant columns (excluding metadata columns)
     variant_columns = [x for x in carriers_string_full.columns if x not in ['IID','ancestry']]
-    
+    # print(key.head())
+    # print(carriers_string_full.head())
+    # print(variant_columns)
     # Process string format output
     carriers_string_full_out = carriers_string_full[['IID', 'ancestry'] + variant_columns]
     carriers_string_full_out[variant_columns] = carriers_string_full_out[variant_columns].fillna('./.')
@@ -185,15 +176,28 @@ def combine_carrier_files(results_by_label: dict, key_file: str, out_path: str, 
     carriers_int_full_out_merge = carriers_int_full_out.merge(key[['IID','study']], how='left', on='IID')
     carriers_int_final = carriers_int_full_out_merge[['IID', 'study', 'ancestry'] + variant_columns]
     
-    # Use only the base name for local files
-    base_name = os.path.basename(out_path)
+    # Calculate aggregate ALT_FREQS and OBS_CT across all ancestries
+    freq_cols = [col for col in var_info_base.columns if col.startswith('ALT_FREQS_')]
+    obs_cols = [col for col in var_info_base.columns if col.startswith('OBS_CT_')]
     
-    # Create local paths without gs:// prefix
-    carriers_string_path = os.path.join(temp_dir, f'{base_name}_string.csv')
-    carriers_int_path = os.path.join(temp_dir, f'{base_name}_int.csv')
-    var_info_path = os.path.join(temp_dir, f'{base_name}_info.csv')
+    # Sum up total observations
+    var_info_base['OBS_CT'] = var_info_base[obs_cols].sum(axis=1)
     
-    # Save to local temporary files
+    # Calculate weighted average for allele frequencies
+    weighted_sum = pd.Series(0, index=var_info_base.index)
+    for i, freq_col in enumerate(freq_cols):
+        matching_obs_col = obs_cols[i]
+        weighted_sum += var_info_base[freq_col] * var_info_base[matching_obs_col]
+    
+    # Avoid division by zero
+    var_info_base['ALT_FREQS'] = weighted_sum / var_info_base['OBS_CT'].replace(0, float('nan'))
+    
+    # Create direct output paths
+    carriers_string_path = f"{out_path}_string.csv"
+    carriers_int_path = f"{out_path}_int.csv"
+    var_info_path = f"{out_path}_info.csv"
+    
+    # Save files directly to specified paths
     carriers_string_final.to_csv(carriers_string_path, index=False)
     carriers_int_final.to_csv(carriers_int_path, index=False)
     var_info_base.to_csv(var_info_path, index=False)

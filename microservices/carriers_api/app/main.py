@@ -102,12 +102,15 @@ async def process_carriers(
                 
                 label_results[label] = label_gcs_results
 
-            # Combine results with specified output path
+            # Create a local output path for combined results
+            output_base_name = os.path.basename(request.output_path)
+            combined_local_prefix = os.path.join(output_dir, output_base_name)
+            
+            # Combine results with the local output path
             combined_results = carriers.combine_carrier_files(
                 results_by_label=results_by_label,
                 key_file=key_file_local,
-                out_path=request.output_path,
-                temp_dir=output_dir
+                out_path=combined_local_prefix
             )
 
             # Upload combined results to GCS
