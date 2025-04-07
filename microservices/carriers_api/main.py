@@ -1,7 +1,7 @@
 from src.core.manager import CarrierAnalysisManager
 
 if __name__ == "__main__":
-    # Example configuration
+
 
     data_dir = f'/home/vitaled2/gp2_carriers/data'
     report_path = f'{data_dir}/NBA_Report.csv'
