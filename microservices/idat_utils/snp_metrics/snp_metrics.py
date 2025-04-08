@@ -350,11 +350,11 @@ def process_idat_files(idat_path, output_directory, bpm, bpm_csv, egt, ref_fasta
     
     # Step 1: Convert IDAT files to GTC (write to temp directory)
     step1_start_time = time.time()
-    # print(f"Step 1: Converting IDAT to GTC for {barcode}...")
-    # gtc_files = convert_idat_to_gtc(iaap, bpm, egt, out_tmp, idat_path, debug=debug)
-    # if not gtc_files:
-    #     print(f"Failed to convert IDAT to GTC for {barcode}")
-    #     return False
+    print(f"Step 1: Converting IDAT to GTC for {barcode}...")
+    gtc_files = convert_idat_to_gtc(iaap, bpm, egt, out_tmp, idat_path, debug=debug)
+    if not gtc_files:
+        print(f"Failed to convert IDAT to GTC for {barcode}")
+        return False
     
     step1_duration = time.time() - step1_start_time
     # print(f"Step 1 complete: Created {len(gtc_files)} GTC files in {step1_duration:.2f} seconds")
@@ -362,13 +362,13 @@ def process_idat_files(idat_path, output_directory, bpm, bpm_csv, egt, ref_fasta
     # Step 2: Process all GTC files and create per-sample VCF files
     step2_start_time = time.time()
     print(f"Step 2: Converting GTC files to per-sample VCF files...")
-    # vcf_files = gtc_to_vcf(out_tmp, out_tmp, bpm, bpm_csv, egt, ref_fasta, out_tmp, 
-    #                  bcftools_plugins_path, threads=bcftools_threads, 
-    #                  memory=f"{int(total_memory_gb * 0.7)}G")
+    vcf_files = gtc_to_vcf(out_tmp, out_tmp, bpm, bpm_csv, egt, ref_fasta, out_tmp, 
+                     bcftools_plugins_path, threads=bcftools_threads, 
+                     memory=f"{int(total_memory_gb * 0.7)}G")
     
-    # if not vcf_files:
-    #     print(f"Failed to convert GTC files to VCF for {barcode}")
-    #     return False
+    if not vcf_files:
+        print(f"Failed to convert GTC files to VCF for {barcode}")
+        return False
     
     step2_duration = time.time() - step2_start_time
     # glob vcf_files for testing
