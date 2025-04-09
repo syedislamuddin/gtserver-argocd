@@ -189,6 +189,8 @@ bcftools +gtc2vcf \
 --gtcs {gtc_directory} \
 --fasta-ref {ref_fasta} | \
 bcftools norm \
+-m \
+-both \
 -Ou \
 --no-version \
 -c w \
@@ -933,7 +935,7 @@ def extract_vcf_columns(vcf_file, output_path=None, num_rows=10, columns="all",
         filtered_df = result_df
     
     print(f"Extracted and processed {len(filtered_df)} rows with {len(filtered_df.columns)} columns in {time.time() - start_time:.2f} seconds")
-    
+    filtered_df = filtered_df.rename(columns={'ID': 'snpID'})
     # Save result if a path is provided
     if output_path:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -1204,7 +1206,6 @@ def merge_sample_chunks(chunk_pattern, output_file, sample_id):
         import traceback
         traceback.print_exc()
         return False
-
 
 
 ####### example for extract_vcf_columns #######
