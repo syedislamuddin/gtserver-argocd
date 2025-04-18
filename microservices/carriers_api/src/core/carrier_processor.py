@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Dict
+from typing import Dict, Tuple
 from src.core.plink_command import PlinkCommand
 from src.core.data_repository import DataRepository
 from src.core.genotype_converter import GenotypeConverter
@@ -194,7 +194,7 @@ class CarrierCombiner:
             # Add frequency data for this population
             var_info_base[f'ALT_FREQS_{label}'] = label_var_info['ALT_FREQS']
             var_info_base[f'OBS_CT_{label}'] = label_var_info['OBS_CT']
-            
+            var_info_base.drop(columns=['ALT_x', '#CHROM', 'REF', 'ALT_y'], inplace=True)
             # Add missingness data if available
             if 'F_MISS' in label_var_info.columns:
                 var_info_base[f'F_MISS_{label}'] = label_var_info['F_MISS']
@@ -225,17 +225,22 @@ class CarrierCombiner:
         
         # Calculate aggregate statistics
         self._calculate_aggregate_statistics(var_info_base)
-        
+
+        # Deduplicate variants based on lowest F_MISS
+        var_info_dedup, carriers_string_dedup, carriers_int_dedup = self._deduplicate_variants(
+            var_info_base, carriers_string_final, carriers_int_final
+        )
+
         # Define output paths
         carriers_string_path = f"{out_path}_string.csv"
         carriers_int_path = f"{out_path}_int.csv"
         var_info_path = f"{out_path}_info.csv"
-        
+
         # Save combined files
-        self.data_repo.write_csv(carriers_string_final, carriers_string_path, index=False)
-        self.data_repo.write_csv(carriers_int_final, carriers_int_path, index=False)
-        self.data_repo.write_csv(var_info_base, var_info_path, index=False)
-        
+        self.data_repo.write_csv(carriers_string_dedup, carriers_string_path, index=False)
+        self.data_repo.write_csv(carriers_int_dedup, carriers_int_path, index=False)
+        self.data_repo.write_csv(var_info_dedup, var_info_path, index=False)
+
         return {
             'carriers_string': carriers_string_path,
             'carriers_int': carriers_int_path,
@@ -267,4 +272,55 @@ class CarrierCombiner:
             var_info_base['F_MISS'] = var_info_base[miss_cols].mean(axis=1)
             
             # Find maximum missingness rate for each variant
-            var_info_base['F_MISS_MAX'] = var_info_base[miss_cols].max(axis=1)
+            # var_info_base['F_MISS_MAX'] = var_info_base[miss_cols].max(axis=1)
+
+    def _deduplicate_variants(self, var_info: pd.DataFrame,
+                              carriers_str: pd.DataFrame,
+                              carriers_int: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Select unique variants based on chrom, pos, a1, a2, choosing the one with the lowest F_MISS.
+
+        Args:
+            var_info: DataFrame with variant information including 'id', 'chrom', 'pos', 'a1', 'a2', 'F_MISS'.
+            carriers_str: DataFrame with carrier strings (columns are 'IID', 'study', 'ancestry', variant 'id's).
+            carriers_int: DataFrame with carrier integers (columns are 'IID', 'study', 'ancestry', variant 'id's).
+
+        Returns:
+            Tuple containing the deduplicated var_info, carriers_str, and carriers_int DataFrames.
+        """
+        if 'F_MISS' not in var_info.columns:
+            print("Warning: F_MISS column not found in var_info. Skipping deduplication.")
+            return var_info, carriers_str, carriers_int
+
+        duplicate_key_cols = ['chrom', 'pos', 'a1', 'a2']
+
+        # Ensure key columns exist
+        if not all(col in var_info.columns for col in duplicate_key_cols):
+             print(f"Warning: Missing one or more key columns {duplicate_key_cols} in var_info. Skipping deduplication.")
+             return var_info, carriers_str, carriers_int
+
+        # Sort by positional key and then by F_MISS to prioritize lowest missingness
+        # Handle potential NaN in F_MISS by filling with infinity for sorting (worst missingness)
+        var_info_sorted = var_info.sort_values(
+            by=duplicate_key_cols + ['F_MISS'],
+            ascending=[True] * len(duplicate_key_cols) + [True], # True for F_MISS = lowest first
+            na_position='last' # Place NaNs last in F_MISS sorting
+        )
+
+        # Identify rows to keep (the first occurrence after sorting by F_MISS)
+        ids_to_keep = var_info_sorted.drop_duplicates(subset=duplicate_key_cols, keep='first')['id'].tolist()
+
+        # Filter var_info
+        var_info_dedup = var_info[var_info['id'].isin(ids_to_keep)].reset_index(drop=True)
+
+        # Filter carrier data columns
+        metadata_cols = ['IID', 'study', 'ancestry']
+        variant_cols_to_keep = [col for col in carriers_str.columns if col in ids_to_keep or col in metadata_cols]
+
+        carriers_str_dedup = carriers_str[variant_cols_to_keep]
+        carriers_int_dedup = carriers_int[variant_cols_to_keep] # Assumes int df has same columns
+
+        if len(var_info.index) != len(var_info_dedup.index):
+            print(f"Deduplicated {len(var_info.index) - len(var_info_dedup.index)} variants based on lowest F_MISS.")
+
+        return var_info_dedup, carriers_str_dedup, carriers_int_dedup
