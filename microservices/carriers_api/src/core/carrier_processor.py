@@ -61,11 +61,11 @@ class VariantProcessor:
             vmiss.rename(columns={'ID':'SNP'}, inplace=True)
             
             # Merge frequency and missingness data
-            freq = freq.merge(vmiss[['SNP', 'F_MISS']], on='SNP', how='left')
+            var_stats = freq.merge(vmiss[['SNP', 'F_MISS']], on='SNP', how='left')
         except (FileNotFoundError, pd.errors.EmptyDataError):
             print(f"Warning: Missing data file {plink_out}.vmiss not found or empty")
         
-        return freq
+        return var_stats
 
 
 class CarrierExtractor:
@@ -97,7 +97,7 @@ class CarrierExtractor:
         plink_out = f"{out_path}_snps"
         
         # Extract variant statistics
-        freq = self.variant_processor.extract_variants(geno_path, temp_snps_path, plink_out)
+        var_stats = self.variant_processor.extract_variants(geno_path, temp_snps_path, plink_out)
         
         # Read and process traw data
         traw = self.data_repo.read_csv(f"{plink_out}.traw", sep='\t')
@@ -121,7 +121,8 @@ class CarrierExtractor:
         
         # Process and save frequency info
         var_info_df = traw_final.loc[:, colnames]
-        var_info_df = var_info_df.merge(freq, how='left', on='SNP')
+        var_info_df = var_info_df.merge(var_stats, how='left', on='SNP')
+        var_info_df.pos = var_info_df.pos.astype(int)
         self.data_repo.write_csv(var_info_df, f"{out_path}_var_info.csv", index=False)
         
         # Process and save string format
