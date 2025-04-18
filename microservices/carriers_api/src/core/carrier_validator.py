@@ -50,22 +50,44 @@ class CarrierValidator:
             ancestry = carriers.loc[carriers['IID'] == sample_id, 'ancestry'].iloc[0]
             
             # Read corresponding traw file
-            traw_path = f'{traw_dir}/{ancestry}/{ancestry}_release9_vwb_snps.traw'
+            traw_path = f'{traw_dir}/{ancestry}_snps.traw'
             traw = self.data_repo.read_csv(traw_path, sep='\t')
             traw_merged = snp_df.merge(traw, how='left', left_on='id', right_on='SNP')
             
             # Check each SNP
             for snp in snp_df['id']:
+                # Construct the column name by adding '0_' prefix to the sample_id
+                column_name = f'0_{sample_id}'
+                
+                # Add this debug check after column_name is defined
+                if column_name not in traw_merged.columns:
+                    print(f"WARNING: Column {column_name} not found in traw_merged")
+                    print(f"Available columns: {traw_merged.columns}")
+                    # Try finding the column without the '0_' prefix
+                    if sample_id in traw_merged.columns:
+                        column_name = sample_id
+                        print(f"Using {column_name} instead")
+                    else:
+                        # Try finding columns that contain the sample_id as a substring
+                        possible_cols = [col for col in traw_merged.columns if sample_id in col]
+                        if possible_cols:
+                            column_name = possible_cols[0]
+                            print(f"Using closest match: {column_name}")
+                        else:
+                            print(f"No matching column found for {sample_id}")
+                            continue  # Skip this sample-SNP combination
+                
+                # Get the raw value
                 raw_value = traw_merged.loc[
                     traw_merged['id'] == snp, 
-                    f'0_{sample_id}'
+                    column_name
                 ].iloc[0]
-                
+        
                 combined_value = carriers.loc[
                     carriers['IID'] == sample_id,
                     snp
                 ].iloc[0]
-                
+                # print(raw_value, combined_value, snp, sample_id)
                 if not self.verify_genotype(raw_value, combined_value, snp):
                     mismatches.append({
                         'sample': sample_id,

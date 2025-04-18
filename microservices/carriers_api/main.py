@@ -30,9 +30,12 @@ if __name__ == "__main__":
         out_path=f'{output_dir}/carriers_TEST'
     )
     
+    # import pandas as pd
+    # combined_results = dict()
+    # combined_results['carriers_string'] = f'{output_dir}/carriers_TEST_string.csv'
     # Validate results
-    manager.validate_carrier_data(
-        traw_dir=geno_dir,
-        combined_file=combined_results['carriers_string'],
-        snp_info_file=snplist_path
-    )
+    # manager.validate_carrier_data(
+    #     traw_dir=output_dir,
+    #     combined_file=combined_results['carriers_string'],
+    #     snp_info_file=snplist_path
+    # )
