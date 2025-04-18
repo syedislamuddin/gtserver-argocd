@@ -195,6 +195,7 @@ class CarrierCombiner:
             var_info_base[f'ALT_FREQS_{label}'] = label_var_info['ALT_FREQS']
             var_info_base[f'OBS_CT_{label}'] = label_var_info['OBS_CT']
             var_info_base.drop(columns=['ALT_x', '#CHROM', 'REF', 'ALT_y'], inplace=True)
+            
             # Add missingness data if available
             if 'F_MISS' in label_var_info.columns:
                 var_info_base[f'F_MISS_{label}'] = label_var_info['F_MISS']
