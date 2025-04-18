@@ -182,6 +182,8 @@ async def test_local_processing():
         raise HTTPException(status_code=500, detail=f"Local processing failed: {str(e)}")
 
 if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
     # # data_dir = f'/home/vitaled2/gp2_carriers/data'
     # # report_path = f'{data_dir}/NBA_Report.csv'
     # # geno_dir = f'{data_dir}/raw_genotypes'
@@ -210,4 +212,4 @@ if __name__ == "__main__":
     # # )
     # 
     # 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
