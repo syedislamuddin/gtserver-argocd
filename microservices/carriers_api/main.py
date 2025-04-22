@@ -163,6 +163,17 @@ async def test_local_processing():
                 out_path=label_output_dir
             )
             results_by_label[label] = results
+        
+        # hardcode results_by_label for testing combined results without running the extract_carriers function
+        results_by_label = {
+
+            label: {
+                'var_info': os.path.join(output_dir, label, f"{label}_var_info.csv"),
+                'carriers_string': os.path.join(output_dir, label, f"{label}_carriers_string.csv"),
+                'carriers_int': os.path.join(output_dir, label, f"{label}_carriers_int.csv")
+                }
+            for label in labels
+        }
 
         # Combine results
         combined_out_path_prefix = os.path.join(output_dir, 'carriers_TEST_local')

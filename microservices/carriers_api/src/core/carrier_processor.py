@@ -194,7 +194,7 @@ class CarrierCombiner:
             # Add frequency data for this population
             var_info_base[f'ALT_FREQS_{label}'] = label_var_info['ALT_FREQS']
             var_info_base[f'OBS_CT_{label}'] = label_var_info['OBS_CT']
-            var_info_base.drop(columns=['ALT_x', '#CHROM', 'REF', 'ALT_y'], inplace=True)
+            
             
             # Add missingness data if available
             if 'F_MISS' in label_var_info.columns:
@@ -231,12 +231,13 @@ class CarrierCombiner:
         var_info_dedup, carriers_string_dedup, carriers_int_dedup = self._deduplicate_variants(
             var_info_base, carriers_string_final, carriers_int_final
         )
+        var_info_dedup.drop(columns=['ALT_x', '#CHROM', 'REF', 'ALT_y'], inplace=True)
 
         # Define output paths
         carriers_string_path = f"{out_path}_string.csv"
         carriers_int_path = f"{out_path}_int.csv"
         var_info_path = f"{out_path}_info.csv"
-
+        
         # Save combined files
         self.data_repo.write_csv(carriers_string_dedup, carriers_string_path, index=False)
         self.data_repo.write_csv(carriers_int_dedup, carriers_int_path, index=False)
