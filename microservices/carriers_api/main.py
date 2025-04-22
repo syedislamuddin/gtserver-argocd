@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from google.cloud import storage
 import tempfile
 import os
-# from typing import List
+from typing import List, Optional
 from src.core.manager import CarrierAnalysisManager
 from src.core.security import get_api_key
 import uvicorn
@@ -15,6 +15,15 @@ class CarrierRequest(BaseModel):
     snplist_path: str  # GCS path to SNP list file
     key_file_path: str  # GCS path to key file
     output_path: str  # Full GCS path including desired prefix (e.g., "gs://bucket/path/prefix_name")
+
+class LocalTestRequest(BaseModel):
+    geno_dir: str
+    key_file_path: str
+    output_dir: str
+    snplist_path: str
+    out_prefix: str
+    release_version: str = "9" # Default release version
+    labels: Optional[List[str]] = ['AAC', 'AFR', 'AJ', 'AMR', 'CAH', 'CAS', 'EAS', 'EUR', 'FIN', 'MDE', 'SAS'] # Default labels
 
 def download_from_gcs(bucket_name: str, blob_path: str, local_path: str):
     """Download a file from GCS to local storage."""
@@ -135,52 +144,59 @@ async def process_carriers(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/test_local_processing")
-async def test_local_processing():
-    """Endpoint to trigger the local carrier processing logic for testing."""
+async def test_local_processing(request: LocalTestRequest):
+    """Endpoint to trigger the local carrier processing logic for testing using provided paths."""
     try:
-        # Hardcoded paths for local testing
-        data_dir = f'/home/vitaled2/gp2_carriers/data'
-        # report_path = f'{data_dir}/NBA_Report.csv' # Not used in the selected code
-        geno_dir = f'{data_dir}/raw_genotypes'
-        key_file = f'{data_dir}/nba_app_key.csv'
-        output_dir = f'{data_dir}/outputs'
-        snplist_path = f'{data_dir}/carriers_report_snps_nba.csv'
-        labels = ['AAC', 'AFR', 'AJ', 'AMR', 'CAH', 'CAS', 'EAS', 'EUR', 'FIN', 'MDE', 'SAS']
+        # Use paths from the request body
+        geno_dir = request.geno_dir
+        key_file = request.key_file_path
+        output_dir = request.output_dir
+        snplist_path = request.snplist_path
+        labels = request.labels
+        combined_out_basename = request.out_prefix
+        release_version = request.release_version
 
-        # Ensure output directory exists
+        # Ensure base output directory exists
         os.makedirs(output_dir, exist_ok=True)
 
         manager = CarrierAnalysisManager()
 
+        # --- Option 1: Run extraction first (uncomment if needed) ---
         # Extract carriers for each ancestry label
         results_by_label = {}
         for label in labels:
             label_output_dir = os.path.join(output_dir, label)
             os.makedirs(label_output_dir, exist_ok=True)
+            # Construct geno_path using the pattern and version
+            geno_path_prefix = f"{label}/{label}_release{release_version}_vwb"
+            full_geno_path = os.path.join(geno_dir, geno_path_prefix)
             results = manager.extract_carriers(
-                geno_path=f'{geno_dir}/{label}/{label}_release9_vwb',
+                geno_path=full_geno_path,
                 snplist_path=snplist_path,
-                out_path=label_output_dir
+                out_path=os.path.join(label_output_dir, label) # Keep output filenames simple
             )
             results_by_label[label] = results
         
-        # hardcode results_by_label for testing combined results without running the extract_carriers function
-        results_by_label = {
-
-            label: {
-                'var_info': os.path.join(output_dir, label, f"{label}_var_info.csv"),
-                'carriers_string': os.path.join(output_dir, label, f"{label}_carriers_string.csv"),
-                'carriers_int': os.path.join(output_dir, label, f"{label}_carriers_int.csv")
-                }
-            for label in labels
-        }
+        # --- Option 2: Generate paths assuming extraction is done ---
+        # Use this if you only want to test the combination step
+        # Assuming extract_carriers output filenames are like '{label}_var_info.csv' etc.
+        # inside the label-specific output directory.
+        # results_by_label = {
+        #     label: {
+        #         'var_info': os.path.join(output_dir, label, f"{label}_var_info.csv"),
+        #         'carriers_string': os.path.join(output_dir, label, f"{label}_carriers_string.csv"),
+        #         'carriers_int': os.path.join(output_dir, label, f"{label}_carriers_int.csv")
+        #     }
+        #     for label in labels
+        # }
 
         # Combine results
-        combined_out_path_prefix = os.path.join(output_dir, 'carriers_TEST_local')
+        # Construct the full path for the combined output prefix
+        combined_out_path_prefix = os.path.join(output_dir, combined_out_basename)
         combined_results = manager.combine_carrier_files(
             results_by_label=results_by_label,
             key_file=key_file,
-            out_path=combined_out_path_prefix # Use a prefix for combined files
+            out_path=combined_out_path_prefix
         )
 
         return {
@@ -190,6 +206,7 @@ async def test_local_processing():
         }
 
     except Exception as e:
+        # Provide more context in error message
         raise HTTPException(status_code=500, detail=f"Local processing failed: {str(e)}")
 
 if __name__ == "__main__":
