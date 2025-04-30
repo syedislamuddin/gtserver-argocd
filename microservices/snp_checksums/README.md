@@ -1,51 +1,50 @@
-# ForenSeq MD5 Hasher
+## Running the CLI (`main.py`)
 
-ForenSeq MD5 Hasher is a tool that generates a MD5 hash of selected genetic variants in a PLINK binary file. It defaults to six ForenSeq SNPs, but a specific variant set can be provided to generate hashes of different variants. It requires participant IDs of interest and the PLINK binary files.
+### Required Input
+- `--bfile` / `--pfile`: Specify the input bfile or pfile.
+  - If a bfile is provided, the process will convert it to a pfile.
 
-Quick-Start
+### SNP Selection Options
+- If neither `--snp_list` nor `--default_snps` is used, the process will call `plink --geno 0.0` to generate a list of SNPs with perfect callrate.
+- `--snp_list`: Provide a custom list of SNPs.
+- `--default_snps`: Use a pre-determined SNP list.
+  - **Note:** Not recommended unless you are certain all your samples have all the SNPs in this list.
+
+### Output
+- `--out`: Specify the output file path.
+
 ---
-Import the class MD5_plink. Provide the class relevant attributes `geno_path` and `sampleID`, where `geno_path` is the directory of the PLINK binary file and `sampleID` is the list or a string of participant ID(s) of interest. Use MD5_plink.allele_string_gen() to generate the a list of hash from a given list of participant IDs.
 
-```
-test_sample = "FID_IID"
-hasher = MD5_plink(geno_path='PLINK_geno', sampleID=test_sample)
-hash_example = hasher.allele_string_gen()
-hash_example
-```
+## General Workflow
 
-UPDATE
+1. **SNP Selection:**  
+   Obtain a list of SNPs with perfect (100%) callrate across all samples.
+   - *Example:* In GP2 R6, ~200 SNPs were called in every sample, which was sufficient to identify all duplicates in the entire release.
+
+2. **Generate Raw File:**  
+   Extract the selected SNPs and generate a raw genotype file.
+
+3. **Concatenate Genotypes:**  
+   Concatenate the raw genotype calls for each sample into a string.
+
+4. **Hash Genotype Strings:**  
+   Hash the genotype string for each sample.
+
+5. **Duplicate Detection:**  
+   Compare the hashed values among samples to identify duplicates.
+
+6. **Output:**  
+   - Hashed values are saved in a `.txt` file.
+   - Found duplicates are listed in a `.json` file.
+
 ---
-Run from command line:
-- **`--bfile`**
-  - *Type*: `str`
-  - *Default*: `None`
-  - *Description*: path to input genotypes in plink1.9 files
 
-- **`--pfile`**
-  - *Type*: `str`
-  - *Default*: `None`
-  - *Description*: path to input genotypes in plink2.0 files
+## Considerations
 
-- **`--default_snps`**
-  - *Type*: `bool`
-  - *Default*: `False`
-  - *Description*: use default GP2 perfect callrate snps as allele list
+- **Missing Genotypes:**  
+  - If a sample has a "NC" (no call) at any SNP, its concatenated genotype string will produce a different hash value, potentially causing missed duplicates.
+  - A `missing_alleles.txt` file is generated listing all samples with missing alleles, and a warning message is printed.
 
-- **`--snp_list`**
-  - *Type*: `str`
-  - *Default*: `None`
-  - *Description*: path to allele list for hashing
-
-- **`--out`** *(required)*
-  - *Type*: `str`
-  - *Default*: `None`
-  - *Description*: prefix for output files
-
-
-Example:
-```
-python3 main.py \
-    --bfile /path/to/input_genos \
-    --out /path/to/output \
-    --default_snps
-```
+- **Floating Point Issues:**  
+  - In GP2 R6, there was a case where one SNP was not called in a single sample even after running `--geno 0.0`.
+  - **Solution:** Rerunning `--geno 0.0` resolved the issue.
