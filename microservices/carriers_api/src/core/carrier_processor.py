@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Dict, Tuple
-from src.core.plink_command import PlinkCommand
+from src.core.plink_operations import PlinkOperations
 from src.core.data_repository import DataRepository
 from src.core.genotype_converter import GenotypeConverter
 from src.core.carrier_validator import CarrierValidator
@@ -8,9 +8,9 @@ from src.core.carrier_validator import CarrierValidator
 
 class CarrierProcessorFactory:
     @staticmethod
-    def create_variant_processor(plink_command: PlinkCommand, data_repo: DataRepository) -> 'VariantProcessor':
+    def create_variant_processor(plink_operations: PlinkOperations, data_repo: DataRepository) -> 'VariantProcessor':
         """Create a VariantProcessor instance"""
-        return VariantProcessor(plink_command, data_repo)
+        return VariantProcessor(plink_operations, data_repo)
     
     @staticmethod
     def create_carrier_extractor(variant_processor: 'VariantProcessor', 
@@ -33,37 +33,57 @@ class CarrierProcessorFactory:
 
 # Processing Components (utilize Strategy pattern internally)
 class VariantProcessor:
-    def __init__(self, plink_command: PlinkCommand, data_repo: DataRepository):
-        self.plink_command = plink_command
+    def __init__(self, plink_operations: PlinkOperations, data_repo: DataRepository):
+        self.plink_operations = plink_operations
         self.data_repo = data_repo
     
-    def extract_variants(self, geno_path: str, temp_snps_path: str, plink_out: str) -> pd.DataFrame:
+    def extract_variants(self, geno_path: str, reference_path: str, plink_out: str) -> pd.DataFrame:
         """
         Extract variant statistics using plink2 from genotype data.
         
         Args:
             geno_path: Path to the plink2 pfile prefix (without extensions)
-            temp_snps_path: Path to file containing SNPs to extract
+            reference_path: Path to reference allele file for harmonization
             plink_out: Prefix for output files
             
         Returns:
             pd.DataFrame: Combined variant statistics with frequency and missingness data
         """
-        self.plink_command.execute(geno_path, temp_snps_path, plink_out)
+        # Use the updated harmonize_and_extract method that handles common SNP extraction internally
+        self.plink_operations.harmonize_and_extract(geno_path, reference_path, plink_out)
         
-        # Read frequency data
-        freq = self.data_repo.read_csv(f"{plink_out}.afreq", sep='\t')
-        freq.rename(columns={'ID':'SNP'}, inplace=True)
+        # Initialize empty DataFrame for results
+        var_stats = pd.DataFrame()
         
-        # Read variant missingness data
         try:
-            vmiss = self.data_repo.read_csv(f"{plink_out}.vmiss", sep='\t')
-            vmiss.rename(columns={'ID':'SNP'}, inplace=True)
+            # Read frequency data
+            freq = self.data_repo.read_csv(f"{plink_out}.afreq", sep='\t')
+            freq.rename(columns={'ID':'SNP'}, inplace=True)
+            var_stats = freq
             
-            # Merge frequency and missingness data
-            var_stats = freq.merge(vmiss[['SNP', 'F_MISS']], on='SNP', how='left')
+            # Read variant missingness data
+            try:
+                vmiss = self.data_repo.read_csv(f"{plink_out}.vmiss", sep='\t')
+                vmiss.rename(columns={'ID':'SNP'}, inplace=True)
+                
+                # Merge frequency and missingness data
+                var_stats = freq.merge(vmiss[['SNP', 'F_MISS']], on='SNP', how='left')
+            except (FileNotFoundError, pd.errors.EmptyDataError):
+                print(f"Warning: Missing data file {plink_out}.vmiss not found or empty")
+                # var_stats remains freq-only
+                
         except (FileNotFoundError, pd.errors.EmptyDataError):
-            print(f"Warning: Missing data file {plink_out}.vmiss not found or empty")
+            print(f"Warning: Frequency data file {plink_out}.afreq not found or empty")
+            # Check if at least we have missingness data
+            try:
+                vmiss = self.data_repo.read_csv(f"{plink_out}.vmiss", sep='\t')
+                vmiss.rename(columns={'ID':'SNP'}, inplace=True)
+                var_stats = vmiss
+                print(f"Found missingness data but no frequency data")
+            except (FileNotFoundError, pd.errors.EmptyDataError):
+                print(f"Error: Neither frequency nor missingness data available")
+                # Return empty DataFrame with expected column
+                var_stats = pd.DataFrame(columns=['SNP'])
         
         return var_stats
 
@@ -91,13 +111,11 @@ class CarrierExtractor:
         # Read SNP information
         snp_df = self.data_repo.read_csv(snplist_path)
         
-        # Prepare temporary files
-        temp_snps_path = f"{out_path}_temp_snps.txt"
-        snp_df['id'].to_csv(temp_snps_path, header=False, index=False)
+        # Prepare prefix for PLINK output
         plink_out = f"{out_path}_snps"
         
-        # Extract variant statistics
-        var_stats = self.variant_processor.extract_variants(geno_path, temp_snps_path, plink_out)
+        # Extract variant statistics using the SNP list as reference
+        var_stats = self.variant_processor.extract_variants(geno_path, snplist_path, plink_out)
         
         # Read and process traw data
         traw = self.data_repo.read_csv(f"{plink_out}.traw", sep='\t')
@@ -138,9 +156,6 @@ class CarrierExtractor:
         carriers_int.columns.name = None
         carriers_int.rename(columns={'index':'IID'}, inplace=True)
         self.data_repo.write_csv(carriers_int, f"{out_path}_carriers_int.csv", index=False)
-        
-        # Clean up temporary files
-        self.data_repo.remove_file(temp_snps_path)
         
         return {
             'var_info': f"{out_path}_var_info.csv",
