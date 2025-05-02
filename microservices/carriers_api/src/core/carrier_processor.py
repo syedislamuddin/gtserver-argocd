@@ -37,7 +37,7 @@ class VariantProcessor:
         self.plink_operations = plink_operations
         self.data_repo = data_repo
     
-    def extract_variants(self, geno_path: str, reference_path: str, plink_out: str) -> pd.DataFrame:
+    def extract_variants(self, geno_path: str, reference_path: str, plink_out: str) -> Tuple[pd.DataFrame, str]:
         """
         Extract variant statistics using plink2 from genotype data.
         
@@ -47,10 +47,10 @@ class VariantProcessor:
             plink_out: Prefix for output files
             
         Returns:
-            pd.DataFrame: Combined variant statistics with frequency and missingness data
+            Tuple[pd.DataFrame, str]: Combined variant statistics with frequency/missingness data and path to subset SNP file
         """
-        # Use the updated harmonize_and_extract method that handles common SNP extraction internally
-        self.plink_operations.harmonize_and_extract(geno_path, reference_path, plink_out)
+        # Use the updated harmonize_and_extract method that returns subset SNP path
+        subset_snp_path = self.plink_operations.harmonize_and_extract(geno_path, reference_path, plink_out)
         
         # Initialize empty DataFrame for results
         var_stats = pd.DataFrame()
@@ -85,7 +85,7 @@ class VariantProcessor:
                 # Return empty DataFrame with expected column
                 var_stats = pd.DataFrame(columns=['SNP'])
         
-        return var_stats
+        return var_stats, subset_snp_path
 
 
 class CarrierExtractor:
@@ -109,17 +109,22 @@ class CarrierExtractor:
             dict: Paths to generated carrier files
         """
         # Read SNP information
-        snp_df = self.data_repo.read_csv(snplist_path)
+        # snp_df = self.data_repo.read_csv(snplist_path)
         
         # Prepare prefix for PLINK output
         plink_out = f"{out_path}_snps"
         
-        # Extract variant statistics using the SNP list as reference
-        var_stats = self.variant_processor.extract_variants(geno_path, snplist_path, plink_out)
+        # Extract variant statistics using the SNP list as reference and get subset SNP path
+        var_stats, subset_snp_path = self.variant_processor.extract_variants(geno_path, snplist_path, plink_out)
         
+        # Read the subset SNP list that contains matched IDs
+        subset_snp_df = self.data_repo.read_csv(subset_snp_path)
+        print(subset_snp_df.head())
         # Read and process traw data
         traw = self.data_repo.read_csv(f"{plink_out}.traw", sep='\t')
-        traw_merged = snp_df.merge(traw, how='left', left_on='id', right_on='SNP')
+        
+        # Use the subset SNP dataframe for merging instead of the original
+        traw_merged = subset_snp_df[['id','chrom','pos','a1','a2']].merge(traw, how='left', left_on='id', right_on='SNP')
         
         # Define column sets
         colnames = ['id', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
@@ -143,6 +148,10 @@ class CarrierExtractor:
         var_info_df.pos = var_info_df.pos.astype(int)
         self.data_repo.write_csv(var_info_df, f"{out_path}_var_info.csv", index=False)
         
+        # Save the subset SNP list as an output file
+        subset_snp_output_path = f"{out_path}_subset_snps.csv"
+        self.data_repo.write_csv(subset_snp_df, subset_snp_output_path, index=False)
+        
         # Process and save string format
         carriers_string = traw_out.drop(columns=var_cols).set_index('id').T.reset_index()
         carriers_string.columns.name = None
@@ -160,7 +169,8 @@ class CarrierExtractor:
         return {
             'var_info': f"{out_path}_var_info.csv",
             'carriers_string': f"{out_path}_carriers_string.csv",
-            'carriers_int': f"{out_path}_carriers_int.csv"
+            'carriers_int': f"{out_path}_carriers_int.csv",
+            'subset_snps': subset_snp_output_path
         }
 
 
