@@ -31,7 +31,8 @@ class PlinkOperations:
             
             # Step 2: Extract only the common SNPs (for efficiency with large files)
             extracted_prefix = os.path.join(tmpdir, "extracted")
-            self._extract_snps(geno_path, common_snps_path, extracted_prefix)
+            extract_cmd = ExtractSnpsCommand(geno_path, common_snps_path, extracted_prefix)
+            extract_cmd.execute()
             
             # Step 3: Harmonize alleles on the smaller extracted dataset
             harmonized_prefix = os.path.join(tmpdir, "harmonized")
@@ -39,23 +40,12 @@ class PlinkOperations:
             current_geno = harmonized_prefix
             
             # Step 4: Build and execute PLINK command with all operations
-            cmd_parts = [
-                f"plink2 --pfile {current_geno}",
-                "--export Av",
-                "--freq",
-                "--missing"
-            ]
-            
-            # Add any additional arguments
-            if additional_args:
-                cmd_parts.extend(additional_args)
-                
-            # Add output path
-            cmd_parts.append(f"--out {plink_out}")
-            
-            # Execute command
-            full_cmd = " ".join(cmd_parts)
-            subprocess.run(full_cmd, shell=True, check=True)
+            export_cmd = ExportCommand(
+                pfile=current_geno, 
+                out=plink_out, 
+                additional_args=additional_args
+            )
+            export_cmd.execute()
             
             # Create subset SNP list with matched IDs
             subset_snp_path = f"{plink_out}_subset_snps.csv"
@@ -141,12 +131,12 @@ class PlinkOperations:
             snps_file: Path to file with SNP IDs to extract
             out: Output path prefix
         """
-        cmd = f"plink2 --pfile {pfile} --extract {snps_file} --make-pgen --out {out}"
-        subprocess.run(cmd, shell=True, check=True)
+        extract_cmd = ExtractSnpsCommand(pfile, snps_file, out)
+        extract_cmd.execute()
     
     def _harmonize_alleles(self, pfile: str, reference: str, out: str) -> None:
         """
-        Harmonize alleles in PLINK files to match reference alleles.
+        Harmonize alleles in PLINK files to match reference alleles and ensure alt alleles are minor alleles.
         
         Args:
             pfile: Path to PLINK file prefix
@@ -175,18 +165,16 @@ class PlinkOperations:
         flip_swap_mask = (merged['a1_x'].map(lambda x: complement.get(x, x)) == merged['a2']) & \
                          (merged['a2_x'].map(lambda x: complement.get(x, x)) == merged['a1'])
         
-        # Create temporary files for PLINK operations
         with tempfile.TemporaryDirectory() as nested_tmpdir:
-            # Instead of flip, we'll use update-alleles
+            current_pfile = pfile
             update_alleles_path = os.path.join(nested_tmpdir, "update_alleles.txt")
             swap_path = os.path.join(nested_tmpdir, "swap_snps.txt")
             updated_pfile = os.path.join(nested_tmpdir, "updated")
             
-            # Create update-alleles file for SNPs that need flipping
+            # Handle flipping
             flip_snps = merged.loc[flip_mask | flip_swap_mask]
             if not flip_snps.empty:
-                # For each SNP that needs flipping, create a row with:
-                # variant-ID old-A1 old-A2 new-A1 new-A2
+                # Prepare update alleles file
                 update_alleles = flip_snps[['id', 'a1_x', 'a2_x']].copy()
                 # Calculate complement alleles for both A1 and A2
                 update_alleles['new_a1'] = update_alleles['a1_x'].map(lambda x: complement.get(x, x))
@@ -195,30 +183,113 @@ class PlinkOperations:
                 # Write the update alleles file with 5 columns: ID, old-A1, old-A2, new-A1, new-A2
                 update_alleles[['id', 'a1_x', 'a2_x', 'new_a1', 'new_a2']].to_csv(
                     update_alleles_path, sep='\t', index=False, header=False)
-    
-                # Update alleles
-                cmd = f"plink2 --pfile {pfile} --update-alleles {update_alleles_path} --make-pgen --out {updated_pfile}"
-                subprocess.run(cmd, shell=True, check=True)
                 
-                # Use the updated file for next step
+                # Execute update alleles command
+                update_cmd = UpdateAllelesCommand(pfile, update_alleles_path, updated_pfile)
+                update_cmd.execute()
                 current_pfile = updated_pfile
-            else:
-                # No flipping needed
-                current_pfile = pfile
             
-            # Write swap list (including those that need both flip and swap)
+            # Handle swapping
             swap_snps = merged.loc[swap_mask | flip_swap_mask, ['id', 'a1']]
             if not swap_snps.empty:
                 swap_snps.to_csv(swap_path, sep='\t', index=False, header=False)
+                reference_adjusted = os.path.join(nested_tmpdir, "reference_adjusted")
                 
-                # Step 2: Swap A1/A2 designations
-                cmd = f"plink2 --pfile {current_pfile} --a1-allele {swap_path} 2 1 --make-pgen --out {out}"
-                subprocess.run(cmd, shell=True, check=True)
-            elif current_pfile != pfile:
-                # If we updated but don't need to swap, rename the temporary files
-                cmd = f"cp {current_pfile}.pgen {out}.pgen && cp {current_pfile}.pvar {out}.pvar && cp {current_pfile}.psam {out}.psam"
-                subprocess.run(cmd, shell=True, check=True)
+                swap_cmd = SwapAllelesCommand(current_pfile, swap_path, reference_adjusted)
+                swap_cmd.execute()
+                current_pfile = reference_adjusted
+            
+            # Run frequency calculation
+            freq_prefix = os.path.join(nested_tmpdir, "freq_check")
+            freq_cmd = FrequencyCommand(current_pfile, freq_prefix)
+            freq_cmd.execute()
+            
+            # Process frequency data
+            freq_df = pd.read_csv(f"{freq_prefix}.afreq", sep='\t')
+            variants_to_swap = freq_df[freq_df['ALT_FREQS'] > 0.5][['ID', 'REF']]
+            
+            if not variants_to_swap.empty:
+                minor_swap_path = os.path.join(nested_tmpdir, "minor_allele_swap.txt")
+                variants_to_swap.to_csv(minor_swap_path, sep='\t', index=False, header=False)
+                
+                # Execute swap command
+                minor_swap_cmd = SwapAllelesCommand(current_pfile, minor_swap_path, out)
+                minor_swap_cmd.execute()
             else:
-                # If no changes needed, copy original files
-                cmd = f"cp {pfile}.pgen {out}.pgen && cp {pfile}.pvar {out}.pvar && cp {pfile}.psam {out}.psam"
-                subprocess.run(cmd, shell=True, check=True)
+                # Just copy files
+                copy_cmd = CopyFilesCommand(current_pfile, out)
+                copy_cmd.execute()
+
+# Command interface
+class PlinkCommand:
+    def get_command_string(self) -> str:
+        """Returns the command string to be executed"""
+        pass
+    
+    def execute(self) -> None:
+        """Executes the command"""
+        cmd = self.get_command_string()
+        subprocess.run(cmd, shell=True, check=True)
+
+# Concrete command implementations
+class ExtractSnpsCommand(PlinkCommand):
+    def __init__(self, pfile: str, snps_file: str, out: str):
+        self.pfile = pfile
+        self.snps_file = snps_file
+        self.out = out
+        
+    def get_command_string(self) -> str:
+        return f"plink2 --pfile {self.pfile} --extract {self.snps_file} --make-pgen --out {self.out}"
+
+class FrequencyCommand(PlinkCommand):
+    def __init__(self, pfile: str, out: str):
+        self.pfile = pfile
+        self.out = out
+        
+    def get_command_string(self) -> str:
+        return f"plink2 --pfile {self.pfile} --freq --out {self.out}"
+
+class SwapAllelesCommand(PlinkCommand):
+    def __init__(self, pfile: str, swap_file: str, out: str):
+        self.pfile = pfile
+        self.swap_file = swap_file
+        self.out = out
+        
+    def get_command_string(self) -> str:
+        return f"plink2 --pfile {self.pfile} --a1-allele {self.swap_file} 2 1 --make-pgen --out {self.out}"
+
+class UpdateAllelesCommand(PlinkCommand):
+    def __init__(self, pfile: str, update_file: str, out: str):
+        self.pfile = pfile
+        self.update_file = update_file
+        self.out = out
+        
+    def get_command_string(self) -> str:
+        return f"plink2 --pfile {self.pfile} --update-alleles {self.update_file} --make-pgen --out {self.out}"
+
+class ExportCommand(PlinkCommand):
+    def __init__(self, pfile: str, out: str, additional_args: Optional[List[str]] = None):
+        self.pfile = pfile
+        self.out = out
+        self.additional_args = additional_args or []
+        
+    def get_command_string(self) -> str:
+        cmd_parts = [
+            f"plink2 --pfile {self.pfile}",
+            "--export Av",
+            "--freq",
+            "--missing"
+        ]
+        cmd_parts.extend(self.additional_args)
+        cmd_parts.append(f"--out {self.out}")
+        return " ".join(cmd_parts)
+
+class CopyFilesCommand(PlinkCommand):
+    def __init__(self, source_prefix: str, target_prefix: str):
+        self.source_prefix = source_prefix
+        self.target_prefix = target_prefix
+        
+    def get_command_string(self) -> str:
+        return f"cp {self.source_prefix}.pgen {self.target_prefix}.pgen && " \
+               f"cp {self.source_prefix}.pvar {self.target_prefix}.pvar && " \
+               f"cp {self.source_prefix}.psam {self.target_prefix}.psam"

@@ -7,7 +7,6 @@ from src.core.security import get_api_key
 
 app = FastAPI()
 
-# health check endpoint for k8s
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
@@ -30,21 +29,18 @@ async def process_carriers(
     Returns paths to the generated file.
     """
     try:
-        # Create parent directory for out_path if it doesn't exist
         parent_dir = os.path.dirname(request.out_path)
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
         
         manager = CarrierAnalysisManager()
         
-        # Process carriers for the provided genotype path using direct out_path
         results = manager.extract_carriers(
             geno_path=request.geno_path,
             snplist_path=request.snplist_path,
             out_path=request.out_path
         )
 
-        # No need to combine results since we're processing one file
         return {
             "status": "success",
             "outputs": results
