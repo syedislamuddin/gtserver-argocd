@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import os
-from typing import List, Optional
 from src.core.manager import CarrierAnalysisManager
 from src.core.security import get_api_key
 

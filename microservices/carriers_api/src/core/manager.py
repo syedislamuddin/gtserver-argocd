@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, List
 from src.core.carrier_processor import CarrierProcessorFactory
 from src.core.data_repository import DataRepository
-from src.core.plink_operations import PlinkOperations
+from src.core.harmonizer import AlleleHarmonizer
 from src.core.genotype_converter import StandardGenotypeConverter
 
 
@@ -9,12 +9,12 @@ class CarrierAnalysisManager:
     def __init__(self):
         # Initialize common dependencies
         self.data_repo = DataRepository()
-        self.plink_operations = PlinkOperations()
+        self.harmonizer = AlleleHarmonizer()
         self.genotype_converter = StandardGenotypeConverter()
         
         # Initialize processors using the factory
         factory = CarrierProcessorFactory()
-        self.variant_processor = factory.create_variant_processor(self.plink_operations, self.data_repo)
+        self.variant_processor = factory.create_variant_processor(self.harmonizer, self.data_repo)
         self.carrier_extractor = factory.create_carrier_extractor(
             self.variant_processor, self.genotype_converter, self.data_repo)
         self.carrier_combiner = factory.create_carrier_combiner(self.data_repo)

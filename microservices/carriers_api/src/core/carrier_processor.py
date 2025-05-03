@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Dict, Tuple
-from src.core.plink_operations import PlinkOperations
+from src.core.harmonizer import AlleleHarmonizer
 from src.core.data_repository import DataRepository
 from src.core.genotype_converter import GenotypeConverter
 from src.core.carrier_validator import CarrierValidator
@@ -8,9 +8,9 @@ from src.core.carrier_validator import CarrierValidator
 
 class CarrierProcessorFactory:
     @staticmethod
-    def create_variant_processor(plink_operations: PlinkOperations, data_repo: DataRepository) -> 'VariantProcessor':
+    def create_variant_processor(harmonizer: AlleleHarmonizer, data_repo: DataRepository) -> 'VariantProcessor':
         """Create a VariantProcessor instance"""
-        return VariantProcessor(plink_operations, data_repo)
+        return VariantProcessor(harmonizer, data_repo)
     
     @staticmethod
     def create_carrier_extractor(variant_processor: 'VariantProcessor', 
@@ -33,8 +33,8 @@ class CarrierProcessorFactory:
 
 # Processing Components (utilize Strategy pattern internally)
 class VariantProcessor:
-    def __init__(self, plink_operations: PlinkOperations, data_repo: DataRepository):
-        self.plink_operations = plink_operations
+    def __init__(self, harmonizer: AlleleHarmonizer, data_repo: DataRepository):
+        self.harmonizer = harmonizer
         self.data_repo = data_repo
     
     def extract_variants(self, geno_path: str, reference_path: str, plink_out: str) -> Tuple[pd.DataFrame, str]:
@@ -50,7 +50,7 @@ class VariantProcessor:
             Tuple[pd.DataFrame, str]: Combined variant statistics with frequency/missingness data and path to subset SNP file
         """
         # Use the updated harmonize_and_extract method that returns subset SNP path
-        subset_snp_path = self.plink_operations.harmonize_and_extract(geno_path, reference_path, plink_out)
+        subset_snp_path = self.harmonizer.harmonize_and_extract(geno_path, reference_path, plink_out)
         
         # Initialize empty DataFrame for results
         var_stats = pd.DataFrame()
