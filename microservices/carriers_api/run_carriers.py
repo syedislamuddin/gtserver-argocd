@@ -78,6 +78,7 @@ import pandas as pd
 
 # gcsfuse --implicit-dirs gp2tier2_vwb ~/gcs_mounts/gp2tier2_vwb
 # gcsfuse --implicit-dirs genotools-server ~/gcs_mounts/genotools_server
+# python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 release = '9'
 mnt_dir = '/home/vitaled2/gcs_mounts'
