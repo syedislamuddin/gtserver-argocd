@@ -1,41 +1,56 @@
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+import os
 from src.core.manager import CarrierAnalysisManager
+from src.core.security import get_api_key
 
-if __name__ == "__main__":
+app = FastAPI()
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
-    data_dir = f'/home/vitaled2/gp2_carriers/data'
-    report_path = f'{data_dir}/NBA_Report.csv'
-    geno_dir = f'{data_dir}/raw_genotypes'
-    key_file = f'{data_dir}/nba_app_key.csv'
-    output_dir = f'{data_dir}/outputs'
-    snplist_path = f'{data_dir}/carriers_report_snps_nba.csv'
-    labels = ['AAC', 'AFR', 'AJ', 'AMR', 'CAH', 'CAS', 'EAS', 'EUR', 'FIN', 'MDE', 'SAS']
-    
-    manager = CarrierAnalysisManager()
-    
-    # Extract carriers for each ancestry label
-    results_by_label = {}
-    for label in labels:
+class CarrierRequest(BaseModel):
+    geno_path: str  # Path to PLINK2 files prefix (without .pgen/.pvar/.psam extension)
+    key_file_path: str  # Path to key file
+    snplist_path: str  # Path to SNP list file
+    out_path: str  # Full output path prefix for the generated files
+    release_version: str = "9"  # Default release version
+    # labels: Optional[List[str]] = ['AAC', 'AFR', 'AJ', 'AMR', 'CAH', 'CAS', 'EAS', 'EUR', 'FIN', 'MDE', 'SAS']
+
+@app.post("/process_carriers")
+async def process_carriers(
+    request: CarrierRequest,
+    # api_key: str = Depends(get_api_key)
+):
+    """
+    Process carrier information from a single genotype file stored locally.
+    Returns paths to the generated file.
+    """
+    try:
+        parent_dir = os.path.dirname(request.out_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        
+        manager = CarrierAnalysisManager()
+        
         results = manager.extract_carriers(
-            geno_path=f'{geno_dir}/{label}/{label}_release9_vwb',
-            snplist_path=snplist_path,
-            out_path=f'{output_dir}/{label}'
+            geno_path=request.geno_path,
+            snplist_path=request.snplist_path,
+            out_path=request.out_path
         )
-        results_by_label[label] = results
-    
-    # Combine results
-    combined_results = manager.combine_carrier_files(
-        results_by_label=results_by_label,
-        key_file=key_file,
-        out_path=f'{output_dir}/carriers_TEST'
-    )
-    
-    # import pandas as pd
-    # combined_results = dict()
-    # combined_results['carriers_string'] = f'{output_dir}/carriers_TEST_string.csv'
-    # Validate results
-    # manager.validate_carrier_data(
-    #     traw_dir=output_dir,
-    #     combined_file=combined_results['carriers_string'],
-    #     snp_info_file=snplist_path
-    # )
+
+        return {
+            "status": "success",
+            "outputs": results
+        }
+
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Processing failed: {str(e)}\n\nTraceback: {error_trace}"
+        )
+
+# if __name__ == "__main__":
