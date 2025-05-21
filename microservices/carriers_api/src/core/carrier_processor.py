@@ -119,7 +119,7 @@ class CarrierExtractor:
         
         # Read the subset SNP list that contains matched IDs
         subset_snp_df = self.data_repo.read_csv(subset_snp_path)
-        print(subset_snp_df.head())
+        
         # Read and process traw data
         traw = self.data_repo.read_csv(f"{plink_out}.traw", sep='\t')
         
