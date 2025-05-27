@@ -108,8 +108,8 @@ class CarrierExtractor:
         Returns:
             dict: Paths to generated carrier files
         """
-        # Read SNP information
-        # snp_df = self.data_repo.read_csv(snplist_path)
+        # Read SNP information to get the id to snp_name mapping
+        snp_list_df = self.data_repo.read_csv(snplist_path)
         
         # Prepare prefix for PLINK output
         plink_out = f"{out_path}_snps"
@@ -146,6 +146,12 @@ class CarrierExtractor:
         var_info_df = traw_final.loc[:, colnames]
         var_info_df = var_info_df.merge(var_stats, how='left', on='SNP')
         var_info_df.pos = var_info_df.pos.astype(int)
+        
+        # Add snp_name to var_info if available
+        if 'snp_name' in snp_list_df.columns:
+            # Merge snp_name based on the subset_snp_df mapping
+            var_info_df = var_info_df.merge(subset_snp_df[['id', 'snp_name']], on='id', how='left')
+        
         self.data_repo.write_csv(var_info_df, f"{out_path}_var_info.csv", index=False)
         
         # Save the subset SNP list as an output file
@@ -159,6 +165,12 @@ class CarrierExtractor:
         carriers_string = carriers_string.astype(str)
         carriers_string.rename(columns={'index':'IID'}, inplace=True)
         carriers_string.loc[:,'IID'] = carriers_string.loc[:,'IID'].str.replace('0_', '')
+        
+        # Rename variant columns from id to snp_name if available
+        if 'snp_name' in subset_snp_df.columns:
+            id_to_snp_name = subset_snp_df.set_index('id')['snp_name'].to_dict()
+            carriers_string = carriers_string.rename(columns=id_to_snp_name)
+        
         self.data_repo.write_csv(carriers_string, f"{out_path}_carriers_string.csv", index=False)
         
         # Process and save integer format
@@ -166,6 +178,11 @@ class CarrierExtractor:
         carriers_int.columns.name = None
         carriers_int.rename(columns={'index':'IID'}, inplace=True)
         carriers_int.loc[:,'IID'] = carriers_int.loc[:,'IID'].str.replace('0_', '')
+        
+        # Rename variant columns from id to snp_name if available
+        if 'snp_name' in subset_snp_df.columns:
+            carriers_int = carriers_int.rename(columns=id_to_snp_name)
+        
         self.data_repo.write_csv(carriers_int, f"{out_path}_carriers_int.csv", index=False)
         
         return {

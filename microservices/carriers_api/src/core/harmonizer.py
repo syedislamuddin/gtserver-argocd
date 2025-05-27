@@ -78,6 +78,14 @@ class AlleleHarmonizer:
             # Merge to get the subset of reference SNPs that were actually used
             subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')
             
+            # Ensure we keep all columns from ref_df including snp_name if it exists
+            if 'snp_name' in ref_df.columns:
+                # Get all ref_df columns for the matched variants
+                cols_to_keep = list(ref_df.columns)
+                if 'id' not in cols_to_keep:
+                    cols_to_keep.append('id')
+                subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')[cols_to_keep]
+            
             # Save the subset SNP list
             subset_snps.to_csv(subset_snp_path, index=False)
             
