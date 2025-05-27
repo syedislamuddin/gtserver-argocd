@@ -158,12 +158,14 @@ class CarrierExtractor:
         carriers_string = carriers_string.fillna('./.')
         carriers_string = carriers_string.astype(str)
         carriers_string.rename(columns={'index':'IID'}, inplace=True)
+        carriers_string.loc[:,'IID'] = carriers_string.loc[:,'IID'].str.replace('0_', '')
         self.data_repo.write_csv(carriers_string, f"{out_path}_carriers_string.csv", index=False)
         
         # Process and save integer format
         carriers_int = traw_final.drop(columns=var_cols).set_index('id').T.reset_index()
         carriers_int.columns.name = None
         carriers_int.rename(columns={'index':'IID'}, inplace=True)
+        carriers_int.loc[:,'IID'] = carriers_int.loc[:,'IID'].str.replace('0_', '')
         self.data_repo.write_csv(carriers_int, f"{out_path}_carriers_int.csv", index=False)
         
         return {

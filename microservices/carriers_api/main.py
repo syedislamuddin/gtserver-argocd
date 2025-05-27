@@ -12,7 +12,6 @@ async def health_check():
 
 class CarrierRequest(BaseModel):
     geno_path: str  # Path to PLINK2 files prefix (without .pgen/.pvar/.psam extension)
-    key_file_path: str  # Path to key file
     snplist_path: str  # Path to SNP list file
     out_path: str  # Full output path prefix for the generated files
     release_version: str = "9"  # Default release version
@@ -52,5 +51,3 @@ async def process_carriers(
             status_code=500, 
             detail=f"Processing failed: {str(e)}\n\nTraceback: {error_trace}"
         )
-
-# if __name__ == "__main__":

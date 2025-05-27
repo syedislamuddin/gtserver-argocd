@@ -13,7 +13,6 @@ summary_dir = f'{carriers_dir}/summary_data'
 
 release = '10'
 release_dir = '/home/vitaled2/gcs_mounts/gp2_release10_staging/vwb/raw_genotypes/'
-key_file = '/home/vitaled2/gcs_mounts/gp2_release10_staging/vwb/clinical/master_key_release10_final_vwb.csv'
 nba_carriers_release_out_dir = f'/home/vitaled2/gcs_mounts/genotools_server/carriers/nba/release{release}'
 
 labels = ['AAC', 'AFR', 'AJ', 'AMR', 'CAH', 'CAS', 'EAS', 'EUR', 'FIN','MDE', 'SAS']
@@ -26,7 +25,6 @@ for label in labels:
     
     payload = {
         "geno_path": f"{release_dir}/{label}/{label}_release{release}_vwb",
-        "key_file_path": key_file,
         "snplist_path": f'{summary_dir}/carriers_report_snps_full.csv',
         "out_path": f"{nba_carriers_release_out_dir}/{label}/{label}_release{release}",
         "release_version": "10"
