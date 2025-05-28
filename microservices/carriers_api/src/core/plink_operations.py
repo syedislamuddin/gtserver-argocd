@@ -15,13 +15,18 @@ class PlinkCommand:
 
 # concrete command implementations
 class ExtractSnpsCommand(PlinkCommand):
-    def __init__(self, pfile: str, snps_file: str, out: str):
+    def __init__(self, pfile: str, snps_file: str, out: str, output_chr: str = None):
         self.pfile = pfile
         self.snps_file = snps_file
         self.out = out
+        self.output_chr = output_chr
         
     def get_command_string(self) -> str:
-        return f"plink2 --pfile {self.pfile} --extract {self.snps_file} --make-pgen --out {self.out}"
+        cmd = f"plink2 --pfile {self.pfile} --extract {self.snps_file}"
+        if self.output_chr:
+            cmd += f" --output-chr {self.output_chr}"
+        cmd += f" --make-pgen psam-cols=-fid --out {self.out}"
+        return cmd
 
 class FrequencyCommand(PlinkCommand):
     def __init__(self, pfile: str, out: str):
@@ -75,3 +80,20 @@ class CopyFilesCommand(PlinkCommand):
         return f"cp {self.source_prefix}.pgen {self.target_prefix}.pgen && " \
                f"cp {self.source_prefix}.pvar {self.target_prefix}.pvar && " \
                f"cp {self.source_prefix}.psam {self.target_prefix}.psam"
+
+# class RemoveChrPrefixCommand(PlinkCommand):
+#     def __init__(self, pfile: str, out: str):
+#         self.pfile = pfile
+#         self.out = out
+        
+#     def get_command_string(self) -> str:
+#         return f"plink2 --pfile {self.pfile} --output-chr M --make-pgen --out {self.out}"
+
+# class UpdateChromosomeFormatCommand(PlinkCommand):
+#     def __init__(self, pfile: str, out: str, chr_format: str = 'M'):
+#         self.pfile = pfile
+#         self.out = out
+#         self.chr_format = chr_format
+        
+#     def get_command_string(self) -> str:
+#         return f"plink2 --pfile {self.pfile} --output-chr {self.chr_format} --make-pgen --out {self.out}"

@@ -37,8 +37,9 @@ class AlleleHarmonizer:
             common_snps_path = self._find_common_snps(geno_path, reference_path, os.path.join(tmpdir, "common_snps"))
             
             # Step 2: Extract only the common SNPs (for efficiency with large files)
+            # Also standardizes chromosome format during extraction
             extracted_prefix = os.path.join(tmpdir, "extracted")
-            extract_cmd = ExtractSnpsCommand(geno_path, common_snps_path, extracted_prefix)
+            extract_cmd = ExtractSnpsCommand(geno_path, common_snps_path, extracted_prefix, output_chr='M')
             extract_cmd.execute()
             
             # Step 3: Harmonize alleles on the smaller extracted dataset
@@ -59,13 +60,16 @@ class AlleleHarmonizer:
             
             # Read the final harmonized pvar file to get final SNP IDs
             pvar_path = f"{current_geno}.pvar"
-            pvar = pd.read_csv(pvar_path, sep='\t', dtype={'#CHROM': str})
+            # Read pvar file with proper handling of header and extra columns
+            pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None, 
+                              names=['chrom', 'pos', 'id', 'a1', 'a2'],
+                              usecols=[0, 1, 2, 3, 4],
+                              dtype={'chrom': str})
             
             # Read original reference SNP list
             ref_df = pd.read_csv(reference_path, dtype={'chrom': str})
             
             # Make sure both have snpid columns for merging
-            pvar.columns = ['chrom', 'pos', 'id', 'a1', 'a2'] 
             pvar.loc[:, 'snpid'] = pvar['chrom'] + ':' + pvar['pos'].astype(str)
             
             if 'snpid' not in ref_df.columns:
@@ -73,6 +77,14 @@ class AlleleHarmonizer:
             
             # Merge to get the subset of reference SNPs that were actually used
             subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')
+            
+            # Ensure we keep all columns from ref_df including snp_name if it exists
+            if 'snp_name' in ref_df.columns:
+                # Get all ref_df columns for the matched variants
+                cols_to_keep = list(ref_df.columns)
+                if 'id' not in cols_to_keep:
+                    cols_to_keep.append('id')
+                subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')[cols_to_keep]
             
             # Save the subset SNP list
             subset_snps.to_csv(subset_snp_path, index=False)
@@ -93,8 +105,11 @@ class AlleleHarmonizer:
         """
         # Read files
         pvar_path = f"{pfile}.pvar"
-        pvar = pd.read_csv(pvar_path, sep='\t', dtype={'#CHROM': str})
-        pvar.columns = ['chrom', 'pos', 'id', 'a1', 'a2']
+        # Read pvar file with proper handling of header and extra columns
+        pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None, 
+                          names=['chrom', 'pos', 'id', 'a1', 'a2'],
+                          usecols=[0, 1, 2, 3, 4],
+                          dtype={'chrom': str})
         
         # Clean pvar data
         pvar['chrom'] = pvar['chrom'].astype(str).str.strip()
@@ -152,8 +167,11 @@ class AlleleHarmonizer:
         """
         # Read files
         pvar_path = f"{pfile}.pvar"
-        pvar = pd.read_csv(pvar_path, sep='\t', dtype={'#CHROM': str})
-        pvar.columns = ['chrom', 'pos', 'id', 'a1_x', 'a2_x']
+        # Read pvar file with proper handling of header and extra columns
+        pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None,
+                          names=['chrom', 'pos', 'id', 'a1_x', 'a2_x'],
+                          usecols=[0, 1, 2, 3, 4],
+                          dtype={'chrom': str})
         pvar.loc[:, 'snpid'] = pvar['chrom'] + ':' + pvar['pos'].astype(str)
         
         ref_df = pd.read_csv(reference, dtype={'chrom': str})
