@@ -44,7 +44,8 @@ class AlleleHarmonizer:
             
             # Step 3: Harmonize alleles on the smaller extracted dataset
             harmonized_prefix = os.path.join(tmpdir, "harmonized")
-            self._harmonize_alleles(extracted_prefix, reference_path, harmonized_prefix)
+            match_info_path = os.path.join(tmpdir, "common_snps_match_info.tsv")
+            self._harmonize_alleles(extracted_prefix, reference_path, harmonized_prefix, match_info_path)
             current_geno = harmonized_prefix
             
             # Step 4: Build and execute PLINK command with all operations
@@ -58,33 +59,31 @@ class AlleleHarmonizer:
             # Create subset SNP list with matched IDs
             subset_snp_path = f"{plink_out}_subset_snps.csv"
             
-            # Read the final harmonized pvar file to get final SNP IDs
-            pvar_path = f"{current_geno}.pvar"
-            # Read pvar file with proper handling of header and extra columns
-            pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None, 
-                              names=['chrom', 'pos', 'id', 'a1', 'a2'],
-                              usecols=[0, 1, 2, 3, 4],
-                              dtype={'chrom': str})
+            # Read the match info to get the mapping between genotype IDs and reference variants
+            match_info_path = os.path.join(tmpdir, "common_snps_match_info.tsv")
+            match_info = pd.read_csv(match_info_path, sep='\t')
             
             # Read original reference SNP list
             ref_df = pd.read_csv(reference_path, dtype={'chrom': str})
             
-            # Make sure both have snpid columns for merging
-            pvar.loc[:, 'snpid'] = pvar['chrom'] + ':' + pvar['pos'].astype(str)
+            # Use hg38 as variant_id (with uppercase alleles)
+            ref_df['hg38'] = ref_df['hg38'].astype(str).str.strip().str.replace(' ', '')
+            ref_df['variant_id'] = ref_df['hg38'].str.upper()
             
-            if 'snpid' not in ref_df.columns:
-                ref_df.loc[:, 'snpid'] = ref_df['chrom'] + ':' + ref_df['pos'].astype(str)
+            # Merge match info with reference data to get subset of matched variants
+            subset_snps = match_info.merge(ref_df, left_on='variant_id_ref', right_on='variant_id', how='inner')
             
-            # Merge to get the subset of reference SNPs that were actually used
-            subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')
+            # Keep original reference columns plus the genotype ID
+            ref_cols = list(ref_df.columns)
+            if 'id' not in ref_cols:
+                ref_cols.append('id')
             
-            # Ensure we keep all columns from ref_df including snp_name if it exists
-            if 'snp_name' in ref_df.columns:
-                # Get all ref_df columns for the matched variants
-                cols_to_keep = list(ref_df.columns)
-                if 'id' not in cols_to_keep:
-                    cols_to_keep.append('id')
-                subset_snps = ref_df.merge(pvar[['id', 'snpid']], on='snpid', how='inner')[cols_to_keep]
+            # Rename id_geno to id for consistency
+            subset_snps = subset_snps.rename(columns={'id_geno': 'id'})
+            
+            # Select relevant columns, keeping all from original reference
+            cols_to_keep = [col for col in ref_cols if col in subset_snps.columns]
+            subset_snps = subset_snps[cols_to_keep]
             
             # Save the subset SNP list
             subset_snps.to_csv(subset_snp_path, index=False)
@@ -115,32 +114,87 @@ class AlleleHarmonizer:
         pvar['chrom'] = pvar['chrom'].astype(str).str.strip()
         pvar['pos'] = pvar['pos'].astype(str).str.strip().str.replace(' ', '')
         pvar['id'] = pvar['id'].astype(str).str.strip()
-        pvar.loc[:, 'snpid'] = pvar['chrom'] + ':' + pvar['pos']
+        pvar['a1'] = pvar['a1'].astype(str).str.strip().str.upper()
+        pvar['a2'] = pvar['a2'].astype(str).str.strip().str.upper()
+        
+        # Create unique variant identifier with alleles
+        pvar['variant_id'] = pvar['chrom'] + ':' + pvar['pos'] + ':' + pvar['a1'] + ':' + pvar['a2']
+        # Also create position-only identifier for initial filtering
+        pvar['pos_id'] = pvar['chrom'] + ':' + pvar['pos']
         
         # Read and clean reference data
         ref_df = pd.read_csv(reference, dtype={'chrom': str})
         
-        # Clean ref_df data - handle potential spaces in coordinates
-        for col in ref_df.columns:
-            if col in ['chrom', 'pos', 'id', 'a1', 'a2', 'hg19', 'hg38']:
-                ref_df[col] = ref_df[col].astype(str).str.strip().str.replace(' ', '')
+        # Clean hg38 column - handle potential spaces
+        ref_df['hg38'] = ref_df['hg38'].astype(str).str.strip().str.replace(' ', '')
         
-        # Create snpid for reference
-        if 'chrom' in ref_df.columns and 'pos' in ref_df.columns:
-            ref_df.loc[:, 'snpid'] = ref_df['chrom'] + ':' + ref_df['pos']
-        elif 'hg19' in ref_df.columns:
-            # Handle hg19 format like "1:1234567:A:T"
-            ref_df.loc[:, 'snpid'] = ref_df['hg19'].str.split(':', n=2).str[:2].str.join(':')
-        elif 'hg38' in ref_df.columns:
-            # Handle hg38 format
-            ref_df.loc[:, 'snpid'] = ref_df['hg38'].str.split(':', n=2).str[:2].str.join(':')
+        # Extract components from hg38 format (e.g., "12:40309225:A:C")
+        hg38_parts = ref_df['hg38'].str.split(':')
+        ref_df['chrom'] = hg38_parts.str[0]
+        ref_df['pos'] = hg38_parts.str[1]
+        ref_df['a1'] = hg38_parts.str[2].str.upper()
+        ref_df['a2'] = hg38_parts.str[3].str.upper()
         
-        # Merge data to find common variants
-        merged = pvar.merge(ref_df, how='inner', on='snpid')
+        # Create identifiers using hg38
+        ref_df['pos_id'] = ref_df['chrom'] + ':' + ref_df['pos']
+        ref_df['variant_id'] = ref_df['hg38'].str.upper()  # Ensure alleles are uppercase in variant_id
+        
+        # First, find variants at the same position
+        potential_matches = pvar.merge(ref_df, on='pos_id', suffixes=('_geno', '_ref'))
+        
+        # Check all 4 possible orientations
+        complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}
+        
+        # Exact match: A1_geno = A1_ref, A2_geno = A2_ref
+        exact_match = (
+            (potential_matches['a1_geno'] == potential_matches['a1_ref']) & 
+            (potential_matches['a2_geno'] == potential_matches['a2_ref'])
+        )
+        
+        # Swap match: A1_geno = A2_ref, A2_geno = A1_ref
+        swap_match = (
+            (potential_matches['a1_geno'] == potential_matches['a2_ref']) & 
+            (potential_matches['a2_geno'] == potential_matches['a1_ref'])
+        )
+        
+        # Flip match: A1_geno complement = A1_ref, A2_geno complement = A2_ref
+        flip_match = (
+            (potential_matches['a1_geno'].map(lambda x: complement.get(x, x)) == potential_matches['a1_ref']) & 
+            (potential_matches['a2_geno'].map(lambda x: complement.get(x, x)) == potential_matches['a2_ref'])
+        )
+        
+        # Flip-swap match: A1_geno complement = A2_ref, A2_geno complement = A1_ref
+        flip_swap_match = (
+            (potential_matches['a1_geno'].map(lambda x: complement.get(x, x)) == potential_matches['a2_ref']) & 
+            (potential_matches['a2_geno'].map(lambda x: complement.get(x, x)) == potential_matches['a1_ref'])
+        )
+        
+        # Keep only true matches
+        any_match = exact_match | swap_match | flip_match | flip_swap_match
+        true_matches = potential_matches[any_match].copy()
+        
+        # Add match type for later harmonization
+        true_matches.loc[exact_match[any_match], 'match_type'] = 'exact'
+        true_matches.loc[swap_match[any_match], 'match_type'] = 'swap'
+        true_matches.loc[flip_match[any_match], 'match_type'] = 'flip'
+        true_matches.loc[flip_swap_match[any_match], 'match_type'] = 'flip_swap'
+        
+        # Remove any duplicates (keep first occurrence)
+        true_matches = true_matches.drop_duplicates(subset=['id_geno'])
         
         # Write common SNP IDs to file
         common_snps_path = f"{out}.txt"
-        merged['id'].to_csv(common_snps_path, index=False, header=False)
+        true_matches['id_geno'].to_csv(common_snps_path, index=False, header=False)
+        
+        # Save match information for harmonization step
+        match_info_cols = ['id_geno', 'variant_id_ref', 'match_type']
+        # Add reference columns that exist
+        for col in ['a1_ref', 'a2_ref', 'snp_name_ref']:
+            if col in true_matches.columns:
+                match_info_cols.append(col)
+        
+        match_info_path = f"{out}_match_info.tsv"
+        true_matches[match_info_cols].to_csv(match_info_path, sep='\t', index=False)
         
         return common_snps_path
     
@@ -156,7 +210,7 @@ class AlleleHarmonizer:
         extract_cmd = ExtractSnpsCommand(pfile, snps_file, out)
         extract_cmd.execute()
     
-    def _harmonize_alleles(self, pfile: str, reference: str, out: str) -> None:
+    def _harmonize_alleles(self, pfile: str, reference: str, out: str, match_info_path: str) -> None:
         """
         Harmonize alleles in PLINK files to match reference alleles and ensure alt alleles are minor alleles.
         
@@ -164,31 +218,14 @@ class AlleleHarmonizer:
             pfile: Path to PLINK file prefix
             reference: Path to TSV file with columns chrom, pos, a1, a2
             out: Output path prefix
+            match_info_path: Path to match information file
         """
-        # Read files
-        pvar_path = f"{pfile}.pvar"
-        # Read pvar file with proper handling of header and extra columns
-        pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None,
-                          names=['chrom', 'pos', 'id', 'a1_x', 'a2_x'],
-                          usecols=[0, 1, 2, 3, 4],
-                          dtype={'chrom': str})
-        pvar.loc[:, 'snpid'] = pvar['chrom'] + ':' + pvar['pos'].astype(str)
+        # Read match information
+        match_info = pd.read_csv(match_info_path, sep='\t')
         
-        ref_df = pd.read_csv(reference, dtype={'chrom': str})
-        ref_df.loc[:, 'snpid'] = ref_df['chrom'] + ':' + ref_df['pos'].astype(str)
-        
-        # Merge data
-        merged = pvar.merge(ref_df, how='inner', on='snpid', suffixes=('_x', '_y'))
-        
-        # Create masks for different allele scenarios
-        swap_mask = (merged['a1_x'] == merged['a2']) & (merged['a2_x'] == merged['a1'])
-        
-        complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}
-        flip_mask = (merged['a1_x'].map(lambda x: complement.get(x, x)) == merged['a1']) & \
-                    (merged['a2_x'].map(lambda x: complement.get(x, x)) == merged['a2'])
-        
-        flip_swap_mask = (merged['a1_x'].map(lambda x: complement.get(x, x)) == merged['a2']) & \
-                         (merged['a2_x'].map(lambda x: complement.get(x, x)) == merged['a1'])
+        # Extract SNP IDs by match type
+        swap_mask = match_info['match_type'].isin(['swap', 'flip_swap'])
+        flip_mask = match_info['match_type'].isin(['flip', 'flip_swap'])
         
         with tempfile.TemporaryDirectory() as nested_tmpdir:
             current_pfile = pfile
@@ -197,16 +234,26 @@ class AlleleHarmonizer:
             updated_pfile = os.path.join(nested_tmpdir, "updated")
             
             # Handle flipping
-            flip_snps = merged.loc[flip_mask | flip_swap_mask]
+            flip_snps = match_info[flip_mask]
             if not flip_snps.empty:
+                # Read pvar to get current alleles
+                pvar_path = f"{pfile}.pvar"
+                pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None,
+                                  names=['chrom', 'pos', 'id', 'a1', 'a2'],
+                                  usecols=[0, 1, 2, 3, 4],
+                                  dtype={'chrom': str})
+                
+                # Merge with flip SNPs to get alleles
+                flip_snps_with_alleles = flip_snps.merge(pvar, left_on='id_geno', right_on='id')
+                
                 # Prepare update alleles file
-                update_alleles = flip_snps[['id', 'a1_x', 'a2_x']].copy()
-                # Calculate complement alleles for both A1 and A2
-                update_alleles['new_a1'] = update_alleles['a1_x'].map(lambda x: complement.get(x, x))
-                update_alleles['new_a2'] = update_alleles['a2_x'].map(lambda x: complement.get(x, x))
+                complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}
+                update_alleles = flip_snps_with_alleles[['id', 'a1', 'a2']].copy()
+                update_alleles['new_a1'] = update_alleles['a1'].map(lambda x: complement.get(x, x))
+                update_alleles['new_a2'] = update_alleles['a2'].map(lambda x: complement.get(x, x))
                 
                 # Write the update alleles file with 5 columns: ID, old-A1, old-A2, new-A1, new-A2
-                update_alleles[['id', 'a1_x', 'a2_x', 'new_a1', 'new_a2']].to_csv(
+                update_alleles[['id', 'a1', 'a2', 'new_a1', 'new_a2']].to_csv(
                     update_alleles_path, sep='\t', index=False, header=False)
                 
                 # Execute update alleles command
@@ -215,9 +262,11 @@ class AlleleHarmonizer:
                 current_pfile = updated_pfile
             
             # Handle swapping
-            swap_snps = merged.loc[swap_mask | flip_swap_mask, ['id', 'a1']]
+            swap_snps = match_info[swap_mask]
             if not swap_snps.empty:
-                swap_snps.to_csv(swap_path, sep='\t', index=False, header=False)
+                # For swap operations, we need to know which allele to make REF
+                # We'll use the reference a1 as the target REF allele
+                swap_snps[['id_geno', 'a1_ref']].to_csv(swap_path, sep='\t', index=False, header=False)
                 reference_adjusted = os.path.join(nested_tmpdir, "reference_adjusted")
                 
                 swap_cmd = SwapAllelesCommand(current_pfile, swap_path, reference_adjusted)
