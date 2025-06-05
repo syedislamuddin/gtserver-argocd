@@ -104,11 +104,19 @@ class AlleleHarmonizer:
         """
         # Read files
         pvar_path = f"{pfile}.pvar"
-        # Read pvar file with proper handling of header and extra columns
-        pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None, 
-                          names=['chrom', 'pos', 'id', 'a1', 'a2'],
-                          usecols=[0, 1, 2, 3, 4],
-                          dtype={'chrom': str})
+        
+        # Read pvar file - PLINK2 format has header starting with #CHROM
+        try:
+            # Try reading with header first (PLINK2 format)
+            pvar = pd.read_csv(pvar_path, sep='\t', dtype={'#CHROM': str})
+            # Rename columns to standard names
+            pvar.columns = ['chrom', 'pos', 'id', 'a1', 'a2'] + list(pvar.columns[5:])
+        except:
+            # Fall back to headerless format
+            pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None, 
+                              names=['chrom', 'pos', 'id', 'a1', 'a2'],
+                              usecols=[0, 1, 2, 3, 4],
+                              dtype={'chrom': str})
         
         # Clean pvar data
         pvar['chrom'] = pvar['chrom'].astype(str).str.strip()
@@ -142,6 +150,15 @@ class AlleleHarmonizer:
         # First, find variants at the same position
         potential_matches = pvar.merge(ref_df, on='pos_id', suffixes=('_geno', '_ref'))
         
+        # Debug: print column names to understand the structure
+        print(f"DEBUG: Columns after merge: {list(potential_matches.columns)}")
+        print(f"DEBUG: Shape after merge: {potential_matches.shape}")
+        
+        # Check if id_geno exists, if not, it means ref_df didn't have an 'id' column
+        if 'id_geno' not in potential_matches.columns and 'id' in potential_matches.columns:
+            # The 'id' column from pvar didn't get renamed because ref_df doesn't have 'id'
+            potential_matches = potential_matches.rename(columns={'id': 'id_geno'})
+        
         # Check all 4 possible orientations
         complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}
         
@@ -172,6 +189,18 @@ class AlleleHarmonizer:
         # Keep only true matches
         any_match = exact_match | swap_match | flip_match | flip_swap_match
         true_matches = potential_matches[any_match].copy()
+        
+        # Debug: check columns in true_matches
+        print(f"DEBUG: Columns in true_matches: {list(true_matches.columns)}")
+        
+        # Ensure id_geno exists in true_matches
+        if 'id_geno' not in true_matches.columns:
+            print(f"ERROR: id_geno column not found. Available columns: {list(true_matches.columns)}")
+            # If we have 'id' but not 'id_geno', rename it
+            if 'id' in true_matches.columns:
+                true_matches = true_matches.rename(columns={'id': 'id_geno'})
+            else:
+                raise ValueError("Cannot find variant ID column in merged data")
         
         # Add match type for later harmonization
         true_matches.loc[exact_match[any_match], 'match_type'] = 'exact'
@@ -238,10 +267,17 @@ class AlleleHarmonizer:
             if not flip_snps.empty:
                 # Read pvar to get current alleles
                 pvar_path = f"{pfile}.pvar"
-                pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None,
-                                  names=['chrom', 'pos', 'id', 'a1', 'a2'],
-                                  usecols=[0, 1, 2, 3, 4],
-                                  dtype={'chrom': str})
+                try:
+                    # Try reading with header first (PLINK2 format)
+                    pvar = pd.read_csv(pvar_path, sep='\t', dtype={'#CHROM': str})
+                    # Rename columns to standard names
+                    pvar.columns = ['chrom', 'pos', 'id', 'a1', 'a2'] + list(pvar.columns[5:])
+                except:
+                    # Fall back to headerless format
+                    pvar = pd.read_csv(pvar_path, sep='\t', comment='#', header=None,
+                                      names=['chrom', 'pos', 'id', 'a1', 'a2'],
+                                      usecols=[0, 1, 2, 3, 4],
+                                      dtype={'chrom': str})
                 
                 # Merge with flip SNPs to get alleles
                 flip_snps_with_alleles = flip_snps.merge(pvar, left_on='id_geno', right_on='id')
