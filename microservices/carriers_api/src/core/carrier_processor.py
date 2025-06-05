@@ -126,21 +126,37 @@ class CarrierExtractor:
         # Use the subset SNP dataframe for merging instead of the original
         traw_merged = subset_snp_df[['id','chrom','pos','a1','a2']].merge(traw, how='left', left_on='id', right_on='SNP')
         
-        # Define column sets
-        colnames = ['id', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
+        # Add snp_name to traw_merged if available in subset_snp_df
+        if 'snp_name' in subset_snp_df.columns:
+            traw_merged = traw_merged.merge(subset_snp_df[['id', 'snp_name']], on='id', how='left')
+            # Define column sets including snp_name
+            colnames = ['id', 'snp_name', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
+        else:
+            # Define column sets without snp_name
+            colnames = ['id', 'chrom', 'pos', 'a1', 'a2','CHR', 'SNP', '(C)M', 'POS', 'COUNTED', 'ALT']
+            
         var_cols = [x for x in colnames if x not in ['id']]
         sample_cols = list(traw_merged.drop(columns=colnames).columns)
         
         # Process final traw data
         traw_final = traw_merged.loc[:, colnames + sample_cols]
         
-        # Create string format output
+        # Create string format output - use snp_name for genotype conversion if available
         traw_out = traw_final.copy()
-        traw_out[sample_cols] = traw_out.apply(
-            lambda row: [self.genotype_converter.convert(row[col], row['id']) for col in sample_cols],
-            axis=1,
-            result_type='expand'
-        )
+        if 'snp_name' in traw_final.columns:
+            # Use snp_name for genotype naming
+            traw_out[sample_cols] = traw_out.apply(
+                lambda row: [self.genotype_converter.convert(row[col], row['snp_name']) for col in sample_cols],
+                axis=1,
+                result_type='expand'
+            )
+        else:
+            # Fall back to using id for genotype naming
+            traw_out[sample_cols] = traw_out.apply(
+                lambda row: [self.genotype_converter.convert(row[col], row['id']) for col in sample_cols],
+                axis=1,
+                result_type='expand'
+            )
         
         # Process and save frequency info
         var_info_df = traw_final.loc[:, colnames]
