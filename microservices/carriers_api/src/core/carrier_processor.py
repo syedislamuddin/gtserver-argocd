@@ -158,22 +158,64 @@ class CarrierExtractor:
                 result_type='expand'
             )
         
-        # Process and save frequency info
-        var_info_df = traw_final.loc[:, colnames]
-        var_info_df = var_info_df.merge(var_stats, how='left', on='SNP')
-        var_info_df.pos = var_info_df.pos.astype(int)
+        # Create comprehensive variant information file by combining subset_snp metadata with PLINK statistics
+        # 
+        # HARMONIZATION EXPLANATION:
+        # During harmonization, alleles are matched between input reference and genotype data:
+        # - Original input alleles (ref_allele_orig, alt_allele_orig) are from your input SNP list
+        # - PLINK alleles (plink_counted, plink_alt) are from the harmonized genotype data
+        # - These may differ due to strand flips, allele swaps, or reference/alt designation
+        # - PLINK uses "COUNTED" allele for frequency calculations (equivalent to REF)
+        # - Genotype calls in carriers files are relative to the harmonized PLINK alleles
+        comprehensive_var_info = subset_snp_df.copy()
         
-        # Add snp_name to var_info if available
-        if 'snp_name' in snp_list_df.columns:
-            # Merge snp_name based on the subset_snp_df mapping
-            var_info_df = var_info_df.merge(subset_snp_df[['id', 'snp_name']], on='id', how='left')
+        # Add PLINK statistics (frequency and missingness data)
+        if not var_stats.empty and 'SNP' in var_stats.columns:
+            comprehensive_var_info = comprehensive_var_info.merge(var_stats, left_on='id', right_on='SNP', how='left')
+            # Remove redundant SNP column
+            comprehensive_var_info.drop(columns=['SNP'], inplace=True, errors='ignore')
         
-        self.data_repo.write_csv(var_info_df, f"{out_path}_var_info.csv", index=False)
+        # Add PLINK variant metadata from traw_final with clear naming to distinguish harmonized vs original
+        traw_metadata_cols = ['CHR', '(C)M', 'POS', 'COUNTED', 'ALT']
+        available_metadata_cols = [col for col in traw_metadata_cols if col in traw_final.columns]
+        if available_metadata_cols:
+            plink_metadata = traw_final[['id'] + available_metadata_cols].copy()
+            # Rename PLINK columns to make it clear these are from the harmonized genotype data
+            plink_metadata.rename(columns={
+                'CHR': 'plink_chr',           # Chromosome from PLINK (should match chr)
+                'POS': 'plink_pos',           # Position from PLINK (should match pos)
+                'ALT': 'plink_alt_allele',    # ALT allele after harmonization 
+                '(C)M': 'plink_cm',           # Genetic distance in centiMorgans
+                'COUNTED': 'plink_ref_allele' # REF allele after harmonization (used for frequency calc)
+            }, inplace=True)
+            comprehensive_var_info = comprehensive_var_info.merge(plink_metadata, on='id', how='left')
         
-        # Save the subset SNP list as an output file
-        subset_snp_output_path = f"{out_path}_subset_snps.csv"
-        self.data_repo.write_csv(subset_snp_df, subset_snp_output_path, index=False)
+        # Clean up and reorganize columns for clarity
+        # Remove redundant columns and make naming clearer
+        columns_to_drop = ['variant_id', 'plink_chr', 'plink_pos', 'plink_cm', 'plink_ref_allele', 'plink_alt_allele']  # Remove redundant PLINK columns
+        comprehensive_var_info.drop(columns=columns_to_drop, inplace=True, errors='ignore')
         
+        # Rename columns to match final desired output
+        column_renames = {
+            'a1': 'a1_ref',                   # Original reference allele from input SNP list
+            'a2': 'a2_ref',                   # Original alt allele from input SNP list  
+            'chrom': 'chrom',                 # Keep chromosome as 'chrom'
+            '#CHROM': 'chrom'                 # Rename #CHROM to chrom if it exists (will be overwritten)
+        }
+        comprehensive_var_info.rename(columns=column_renames, inplace=True)
+        
+        # Remove any remaining redundant chromosome columns - keep only 'chrom'
+        redundant_chr_cols = ['#CHROM', 'CHR', 'chrom.1']
+        comprehensive_var_info.drop(columns=redundant_chr_cols, inplace=True, errors='ignore')
+        
+        # Ensure pos is integer if it exists
+        if 'pos' in comprehensive_var_info.columns:
+            comprehensive_var_info['pos'] = comprehensive_var_info['pos'].astype(int)
+        
+        # Save the comprehensive variant information file (replaces both var_info and subset_snps)
+        var_info_output_path = f"{out_path}_var_info.csv"
+        self.data_repo.write_csv(comprehensive_var_info, var_info_output_path, index=False)
+
         # Process and save string format
         carriers_string = traw_out.drop(columns=var_cols).set_index('id').T.reset_index()
         carriers_string.columns.name = None
@@ -204,8 +246,7 @@ class CarrierExtractor:
         return {
             'var_info': f"{out_path}_var_info.csv",
             'carriers_string': f"{out_path}_carriers_string.csv",
-            'carriers_int': f"{out_path}_carriers_int.csv",
-            'subset_snps': subset_snp_output_path
+            'carriers_int': f"{out_path}_carriers_int.csv"
         }
 
 
@@ -291,7 +332,26 @@ class CarrierCombiner:
         var_info_dedup, carriers_string_dedup, carriers_int_dedup = self._deduplicate_variants(
             var_info_base, carriers_string_final, carriers_int_final
         )
-        var_info_dedup.drop(columns=['ALT_x', '#CHROM', 'REF', 'ALT_y'], inplace=True)
+        
+        # Clean up duplicate columns - remove _y versions and rename _x versions
+        columns_to_drop = []
+        columns_to_rename = {}
+        
+        for col in var_info_dedup.columns:
+            if col.endswith('_y'):
+                columns_to_drop.append(col)
+            elif col.endswith('_x'):
+                # Rename _x version to original name
+                original_name = col[:-2]  # Remove '_x' suffix
+                columns_to_rename[col] = original_name
+        
+        # Drop _y columns and rename _x columns
+        var_info_dedup.drop(columns=columns_to_drop, inplace=True, errors='ignore')
+        var_info_dedup.rename(columns=columns_to_rename, inplace=True)
+        
+        # Also drop other redundant columns that might still be present
+        redundant_columns = ['#CHROM', 'REF', 'variant_id']
+        var_info_dedup.drop(columns=redundant_columns, inplace=True, errors='ignore')
 
         # Define output paths
         carriers_string_path = f"{out_path}_string.csv"
