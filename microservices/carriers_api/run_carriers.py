@@ -25,6 +25,131 @@ def cleanup_directory(directory_path, cleanup_enabled):
             print(f"Error removing file {file_path}: {e}")
     print("*"*100)
 
+def combine_array_data_outputs(nba_carriers_release_out_dir, labels, release, output_dir):
+    """
+    Combine all array data outputs from individual populations into 3 consolidated files.
+    
+    Args:
+        nba_carriers_release_out_dir: Base directory containing population-specific outputs
+        labels: List of population labels (e.g., ['AAC', 'AFR', ...])
+        release: Release version string
+        output_dir: Directory where combined files will be saved
+    
+    Returns:
+        dict: Paths to the 3 combined output files
+    """
+    print(f"\n=== Combining Array Data Outputs ===")
+    
+    # Initialize combined dataframes
+    combined_carriers_string = pd.DataFrame()
+    combined_carriers_int = pd.DataFrame() 
+    combined_var_info = pd.DataFrame()
+    
+    # Track which var_info columns we've seen to handle population-specific frequency columns
+    var_info_base = None
+    
+    for i, label in enumerate(labels):
+        print(f"Processing {label} for combination...")
+        
+        # Define file paths for this population
+        var_info_path = f"{nba_carriers_release_out_dir}/{label}/{label}_release{release}_var_info.csv"
+        carriers_string_path = f"{nba_carriers_release_out_dir}/{label}/{label}_release{release}_carriers_string.csv"
+        carriers_int_path = f"{nba_carriers_release_out_dir}/{label}/{label}_release{release}_carriers_int.csv"
+        
+        # Check if files exist
+        if not all(os.path.exists(path) for path in [var_info_path, carriers_string_path, carriers_int_path]):
+            print(f"Warning: Missing files for {label}, skipping...")
+            continue
+            
+        # Read the files
+        var_info = pd.read_csv(var_info_path)
+        carriers_string = pd.read_csv(carriers_string_path)
+        carriers_int = pd.read_csv(carriers_int_path)
+        
+        # Process var_info (combine frequency information from all populations)
+        if var_info_base is None:
+            # First population - use as base and drop frequency columns
+            var_info_base = var_info.copy()
+            freq_cols = ['ALT_FREQS', 'OBS_CT']
+            if 'F_MISS' in var_info_base.columns:
+                freq_cols.append('F_MISS')
+            var_info_base = var_info_base.drop(columns=freq_cols, errors='ignore')
+            combined_var_info = var_info_base.copy()
+        
+        # Add population-specific frequency columns
+        combined_var_info[f'ALT_FREQS_{label}'] = var_info['ALT_FREQS']
+        combined_var_info[f'OBS_CT_{label}'] = var_info['OBS_CT']
+        if 'F_MISS' in var_info.columns:
+            combined_var_info[f'F_MISS_{label}'] = var_info['F_MISS']
+        
+        # Process carriers data (add ancestry column and combine)
+        carriers_string['ancestry'] = label
+        carriers_int['ancestry'] = label
+        
+        # Clean IID column (remove '0_' prefix if present)
+        carriers_string['IID'] = carriers_string['IID'].str.replace('0_', '')
+        carriers_int['IID'] = carriers_int['IID'].str.replace('0_', '')
+        
+        # Combine with previous data
+        combined_carriers_string = pd.concat([combined_carriers_string, carriers_string], ignore_index=True)
+        combined_carriers_int = pd.concat([combined_carriers_int, carriers_int], ignore_index=True)
+    
+    # Calculate aggregate statistics for var_info
+    print("Calculating aggregate statistics...")
+    
+    # Get frequency and observation columns
+    freq_cols = [col for col in combined_var_info.columns if col.startswith('ALT_FREQS_')]
+    obs_cols = [col for col in combined_var_info.columns if col.startswith('OBS_CT_')]
+    
+    # Calculate total observations
+    combined_var_info['OBS_CT'] = combined_var_info[obs_cols].sum(axis=1)
+    
+    # Calculate weighted average allele frequency
+    weighted_sum = pd.Series(0, index=combined_var_info.index)
+    for i, freq_col in enumerate(freq_cols):
+        matching_obs_col = obs_cols[i]
+        weighted_sum += combined_var_info[freq_col] * combined_var_info[matching_obs_col]
+    
+    # Avoid division by zero
+    combined_var_info['ALT_FREQS'] = weighted_sum / combined_var_info['OBS_CT'].replace(0, float('nan'))
+    
+    # Calculate average missingness if available
+    miss_cols = [col for col in combined_var_info.columns if col.startswith('F_MISS_')]
+    if miss_cols:
+        combined_var_info['F_MISS'] = combined_var_info[miss_cols].mean(axis=1)
+    
+    # Reorder carriers dataframes columns 
+    variant_columns = [col for col in combined_carriers_string.columns if col not in ['IID', 'ancestry']]
+    combined_carriers_string = combined_carriers_string[['IID', 'ancestry'] + variant_columns]
+    combined_carriers_int = combined_carriers_int[['IID', 'ancestry'] + variant_columns]
+    
+    # Fill missing values in carriers data
+    combined_carriers_string[variant_columns] = combined_carriers_string[variant_columns].fillna('./.')
+    
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Define output file paths
+    var_info_output = f"{output_dir}/nba_release{release}_combined_var_info.csv"
+    carriers_string_output = f"{output_dir}/nba_release{release}_combined_carriers_string.csv"
+    carriers_int_output = f"{output_dir}/nba_release{release}_combined_carriers_int.csv"
+    
+    # Save combined files
+    print(f"Saving combined files to {output_dir}...")
+    combined_var_info.to_csv(var_info_output, index=False)
+    combined_carriers_string.to_csv(carriers_string_output, index=False)
+    combined_carriers_int.to_csv(carriers_int_output, index=False)
+    
+    print(f"✓ Combined var_info: {var_info_output}")
+    print(f"✓ Combined carriers_string: {carriers_string_output}")
+    print(f"✓ Combined carriers_int: {carriers_int_output}")
+    
+    return {
+        'var_info': var_info_output,
+        'carriers_string': carriers_string_output,
+        'carriers_int': carriers_int_output
+    }
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Process carrier data for multiple populations')
@@ -85,8 +210,20 @@ def main():
 
     api_url = "http://localhost:8000/process_carriers"
     post_to_api(api_url, payload)
+    
+    # Combine array data outputs into consolidated files
+    print("\n=== Combining Array Data Outputs ===")
+    combined_output_dir = f'{mnt_dir}/genotools_server/carriers/nba/release{release}/combined'
+    combined_results = combine_array_data_outputs(
+        nba_carriers_release_out_dir, 
+        labels, 
+        release, 
+        combined_output_dir
+    )
 
     print("\n=== All processing complete! ===")
+    print(f"Individual population files saved in: {nba_carriers_release_out_dir}")
+    print(f"Combined array data files saved in: {combined_output_dir}")
 
 if __name__ == "__main__":
     main()
