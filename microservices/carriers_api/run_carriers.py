@@ -82,6 +82,59 @@ def combine_array_data_outputs(nba_carriers_release_out_dir, labels, release, ou
         if 'F_MISS' in var_info.columns:
             combined_var_info[f'F_MISS_{label}'] = var_info['F_MISS']
         
+        # Track which variant IDs were used in carriers data for this ancestry
+        # For duplicates with same snp_name, the one with lowest F_MISS is used
+        combined_var_info[f'{label}_probe_used'] = False  # Initialize all as False
+        
+        if 'snp_name' in var_info.columns and f'F_MISS_{label}' in combined_var_info.columns:
+            # Group by snp_name and select the variant with lowest F_MISS for each
+            for snp_name in combined_var_info['snp_name'].unique():
+                if pd.isna(snp_name):
+                    continue
+                    
+                snp_group = combined_var_info[combined_var_info['snp_name'] == snp_name]
+                if len(snp_group) > 0:
+                    # Find the variant with lowest F_MISS for this ancestry
+                    miss_col = f'F_MISS_{label}'
+                    if miss_col in snp_group.columns:
+                        # Sort by F_MISS (ascending = lowest first), handle NaN
+                        best_variant_idx = snp_group[miss_col].idxmin()
+                        if pd.notna(best_variant_idx):
+                            combined_var_info.loc[best_variant_idx, f'{label}_probe_used'] = True
+                        else:
+                            # If all F_MISS are NaN, just pick the first one
+                            combined_var_info.loc[snp_group.index[0], f'{label}_probe_used'] = True
+        else:
+            # Fallback: if no F_MISS data, mark all variants as used
+            combined_var_info[f'{label}_probe_used'] = True
+        
+        # Add detailed logging
+        used_ids = combined_var_info[combined_var_info[f'{label}_probe_used']]['id'].tolist()
+        unused_ids = combined_var_info[~combined_var_info[f'{label}_probe_used']]['id'].tolist()
+        
+        print(f"{label}: {len(used_ids)} variants used in carriers data, {len(unused_ids)} variants not used")
+        
+        # Check for duplicate snp_names that had different IDs selected
+        if 'snp_name' in combined_var_info.columns:
+            dup_snp_names = combined_var_info[combined_var_info['snp_name'].duplicated(keep=False)]
+            if not dup_snp_names.empty:
+                for snp_name in dup_snp_names['snp_name'].unique():
+                    if pd.isna(snp_name):
+                        continue
+                        
+                    snp_variants = combined_var_info[combined_var_info['snp_name'] == snp_name]
+                    used_variants = snp_variants[snp_variants[f'{label}_probe_used']]
+                    
+                    if len(snp_variants) > 1 and len(used_variants) > 0:
+                        used_id = used_variants.iloc[0]['id']
+                        used_f_miss = used_variants.iloc[0][f'F_MISS_{label}'] if f'F_MISS_{label}' in used_variants.columns else 'N/A'
+                        unused_variants = snp_variants[~snp_variants[f'{label}_probe_used']]
+                        unused_info = []
+                        for _, row in unused_variants.iterrows():
+                            f_miss_val = row[f'F_MISS_{label}'] if f'F_MISS_{label}' in row else 'N/A'
+                            unused_info.append(f"{row['id']} (F_MISS={f_miss_val})")
+                        print(f"  {label} - {snp_name}: Used {used_id} (F_MISS={used_f_miss}), skipped {unused_info}")
+
         # Process carriers data (add ancestry column and combine)
         carriers_string['ancestry'] = label
         carriers_int['ancestry'] = label
