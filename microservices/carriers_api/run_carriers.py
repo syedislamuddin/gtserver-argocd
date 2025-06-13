@@ -100,6 +100,7 @@ def combine_array_data_outputs(nba_carriers_release_out_dir, labels, release, ou
     # Get frequency and observation columns
     freq_cols = [col for col in combined_var_info.columns if col.startswith('ALT_FREQS_')]
     obs_cols = [col for col in combined_var_info.columns if col.startswith('OBS_CT_')]
+    miss_cols = [col for col in combined_var_info.columns if col.startswith('F_MISS_')]
     
     # Calculate total observations
     combined_var_info['OBS_CT'] = combined_var_info[obs_cols].sum(axis=1)
@@ -113,11 +114,67 @@ def combine_array_data_outputs(nba_carriers_release_out_dir, labels, release, ou
     # Avoid division by zero
     combined_var_info['ALT_FREQS'] = weighted_sum / combined_var_info['OBS_CT'].replace(0, float('nan'))
     
-    # Calculate average missingness if available
-    miss_cols = [col for col in combined_var_info.columns if col.startswith('F_MISS_')]
+    # Calculate weighted average missingness (NEW - properly weighted)
     if miss_cols:
-        combined_var_info['F_MISS'] = combined_var_info[miss_cols].mean(axis=1)
+        miss_weighted_sum = pd.Series(0, index=combined_var_info.index)
+        for i, miss_col in enumerate(miss_cols):
+            matching_obs_col = obs_cols[i]
+            miss_weighted_sum += combined_var_info[miss_col] * combined_var_info[matching_obs_col]
+        
+        # Weighted average missingness
+        combined_var_info['F_MISS'] = miss_weighted_sum / combined_var_info['OBS_CT'].replace(0, float('nan'))
+        
+        # Optional: Also keep simple average for comparison
+        combined_var_info['F_MISS_SIMPLE_AVG'] = combined_var_info[miss_cols].mean(axis=1)
     
+    # Handle NaN values in frequency columns after all calculations
+    print("Handling NaN values in frequency columns...")
+    
+    # Set NaN to 0.0 for ALT_FREQS columns when corresponding OBS_CT > 0
+    for i, freq_col in enumerate(freq_cols):
+        matching_obs_col = obs_cols[i]
+        
+        # Find rows where frequency is NaN but observations > 0
+        nan_mask = combined_var_info[freq_col].isna()
+        valid_obs_mask = combined_var_info[matching_obs_col] > 0
+        fix_mask = nan_mask & valid_obs_mask
+        
+        if fix_mask.sum() > 0:
+            print(f"Setting {fix_mask.sum()} NaN values to 0.0 in {freq_col} where {matching_obs_col} > 0")
+            combined_var_info.loc[fix_mask, freq_col] = 0.0
+    
+    # Set NaN to 0.0 for F_MISS columns when corresponding OBS_CT > 0
+    for i, miss_col in enumerate(miss_cols):
+        matching_obs_col = obs_cols[i]
+        
+        # Find rows where missingness is NaN but observations > 0
+        nan_mask = combined_var_info[miss_col].isna()
+        valid_obs_mask = combined_var_info[matching_obs_col] > 0
+        fix_mask = nan_mask & valid_obs_mask
+        
+        if fix_mask.sum() > 0:
+            print(f"Setting {fix_mask.sum()} NaN values to 0.0 in {miss_col} where {matching_obs_col} > 0")
+            combined_var_info.loc[fix_mask, miss_col] = 0.0
+    
+    # Also handle the aggregate ALT_FREQS and F_MISS columns
+    if 'ALT_FREQS' in combined_var_info.columns:
+        nan_mask = combined_var_info['ALT_FREQS'].isna()
+        valid_obs_mask = combined_var_info['OBS_CT'] > 0
+        fix_mask = nan_mask & valid_obs_mask
+        
+        if fix_mask.sum() > 0:
+            print(f"Setting {fix_mask.sum()} NaN values to 0.0 in aggregate ALT_FREQS where OBS_CT > 0")
+            combined_var_info.loc[fix_mask, 'ALT_FREQS'] = 0.0
+    
+    if 'F_MISS' in combined_var_info.columns:
+        nan_mask = combined_var_info['F_MISS'].isna()
+        valid_obs_mask = combined_var_info['OBS_CT'] > 0
+        fix_mask = nan_mask & valid_obs_mask
+        
+        if fix_mask.sum() > 0:
+            print(f"Setting {fix_mask.sum()} NaN values to 0.0 in aggregate F_MISS where OBS_CT > 0")
+            combined_var_info.loc[fix_mask, 'F_MISS'] = 0.0
+
     # Reorder carriers dataframes columns 
     variant_columns = [col for col in combined_carriers_string.columns if col not in ['IID', 'ancestry']]
     combined_carriers_string = combined_carriers_string[['IID', 'ancestry'] + variant_columns]
