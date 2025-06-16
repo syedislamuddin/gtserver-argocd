@@ -228,6 +228,10 @@ def combine_array_data_outputs(nba_carriers_release_out_dir, labels, release, ou
             print(f"Setting {fix_mask.sum()} NaN values to 0.0 in aggregate F_MISS where OBS_CT > 0")
             combined_var_info.loc[fix_mask, 'F_MISS'] = 0.0
 
+    # Clean up unnecessary columns before saving
+    columns_to_remove = ['F_MISS_SIMPLE_AVG', 'chrom.1']
+    combined_var_info = combined_var_info.drop(columns=columns_to_remove, errors='ignore')
+
     # Reorder carriers dataframes columns 
     variant_columns = [col for col in combined_carriers_string.columns if col not in ['IID', 'ancestry']]
     combined_carriers_string = combined_carriers_string[['IID', 'ancestry'] + variant_columns]
