@@ -224,10 +224,10 @@ class CarrierExtractor:
         carriers_string.rename(columns={'index':'IID'}, inplace=True)
         carriers_string.loc[:,'IID'] = carriers_string.loc[:,'IID'].str.replace('0_', '')
         
-        # Rename variant columns from id to snp_name if available
-        if 'snp_name' in subset_snp_df.columns:
-            id_to_snp_name = subset_snp_df.set_index('id')['snp_name'].to_dict()
-            carriers_string = carriers_string.rename(columns=id_to_snp_name)
+        # Keep original probe IDs as column names (removed renaming to snp_name)
+        # if 'snp_name' in subset_snp_df.columns:
+        #     id_to_snp_name = subset_snp_df.set_index('id')['snp_name'].to_dict()
+        #     carriers_string = carriers_string.rename(columns=id_to_snp_name)
         
         self.data_repo.write_csv(carriers_string, f"{out_path}_carriers_string.csv", index=False)
         
@@ -237,9 +237,9 @@ class CarrierExtractor:
         carriers_int.rename(columns={'index':'IID'}, inplace=True)
         carriers_int.loc[:,'IID'] = carriers_int.loc[:,'IID'].str.replace('0_', '')
         
-        # Rename variant columns from id to snp_name if available
-        if 'snp_name' in subset_snp_df.columns:
-            carriers_int = carriers_int.rename(columns=id_to_snp_name)
+        # Keep original probe IDs as column names (removed renaming to snp_name)
+        # if 'snp_name' in subset_snp_df.columns:
+        #     carriers_int = carriers_int.rename(columns=id_to_snp_name)
         
         self.data_repo.write_csv(carriers_int, f"{out_path}_carriers_int.csv", index=False)
         
@@ -305,29 +305,8 @@ class CarrierCombiner:
             
             # Track which variant IDs were used in carriers data for this ancestry
             if track_probe_usage:
-                combined_var_info[f'{label}_probe_used'] = False  # Initialize all as False
-                
-                if 'snp_name' in var_info.columns and f'F_MISS_{label}' in combined_var_info.columns:
-                    # Group by snp_name and select the variant with lowest F_MISS for each
-                    for snp_name in combined_var_info['snp_name'].unique():
-                        if pd.isna(snp_name):
-                            continue
-                            
-                        snp_group = combined_var_info[combined_var_info['snp_name'] == snp_name]
-                        if len(snp_group) > 0:
-                            # Find the variant with lowest F_MISS for this ancestry
-                            miss_col = f'F_MISS_{label}'
-                            if miss_col in snp_group.columns:
-                                # Sort by F_MISS (ascending = lowest first), handle NaN
-                                best_variant_idx = snp_group[miss_col].idxmin()
-                                if pd.notna(best_variant_idx):
-                                    combined_var_info.loc[best_variant_idx, f'{label}_probe_used'] = True
-                                else:
-                                    # If all F_MISS are NaN, just pick the first one
-                                    combined_var_info.loc[snp_group.index[0], f'{label}_probe_used'] = True
-                else:
-                    # Fallback: if no F_MISS data, mark all variants as used
-                    combined_var_info[f'{label}_probe_used'] = True
+                # Mark all variants as used (removed F_MISS prioritization)
+                combined_var_info[f'{label}_probe_used'] = True
                 
                 # Add detailed logging
                 used_ids = combined_var_info[combined_var_info[f'{label}_probe_used']]['id'].tolist()
