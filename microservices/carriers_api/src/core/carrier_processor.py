@@ -175,42 +175,40 @@ class CarrierExtractor:
             # Remove redundant SNP column
             comprehensive_var_info.drop(columns=['SNP'], inplace=True, errors='ignore')
         
-        # Add PLINK variant metadata from traw_final with clear naming to distinguish harmonized vs original
-        traw_metadata_cols = ['CHR', '(C)M', 'POS', 'COUNTED', 'ALT']
-        available_metadata_cols = [col for col in traw_metadata_cols if col in traw_final.columns]
-        if available_metadata_cols:
-            plink_metadata = traw_final[['id'] + available_metadata_cols].copy()
-            # Rename PLINK columns to make it clear these are from the harmonized genotype data
-            plink_metadata.rename(columns={
-                'CHR': 'plink_chr',           # Chromosome from PLINK (should match chr)
-                'POS': 'plink_pos',           # Position from PLINK (should match pos)
-                'ALT': 'plink_alt_allele',    # ALT allele after harmonization 
-                '(C)M': 'plink_cm',           # Genetic distance in centiMorgans
-                'COUNTED': 'plink_ref_allele' # REF allele after harmonization (used for frequency calc)
-            }, inplace=True)
+        # Remove any chromosome columns from comprehensive_var_info before merging to avoid conflicts
+        # Only keep the 'chrom' column from traw data
+        chr_cols_to_remove = ['chrom', 'CHR', '#CHROM']
+        comprehensive_var_info.drop(columns=chr_cols_to_remove, inplace=True, errors='ignore')
+        
+        # Add only the chromosome column from traw metadata (the only column we want to keep)
+        if 'CHR' in traw_final.columns:
+            plink_metadata = traw_final[['id', 'CHR']].copy()
+            plink_metadata.rename(columns={'CHR': 'chrom'}, inplace=True)
             comprehensive_var_info = comprehensive_var_info.merge(plink_metadata, on='id', how='left')
         
-        # Clean up and reorganize columns for clarity
-        # Remove redundant columns and make naming clearer
-        columns_to_drop = ['variant_id', 'plink_chr', 'plink_pos', 'plink_cm', 'plink_ref_allele', 'plink_alt_allele']  # Remove redundant PLINK columns
+        # Clean up any remaining unwanted columns
+        columns_to_drop = ['variant_id']
         comprehensive_var_info.drop(columns=columns_to_drop, inplace=True, errors='ignore')
         
-        # Rename columns to match final desired output
-        column_renames = {
-            'a1': 'a1_ref',                   # Original reference allele from input SNP list
-            'a2': 'a2_ref',                   # Original alt allele from input SNP list  
-            'chrom': 'chrom',                 # Keep chromosome as 'chrom'
-            '#CHROM': 'chrom'                 # Rename #CHROM to chrom if it exists (will be overwritten)
-        }
-        comprehensive_var_info.rename(columns=column_renames, inplace=True)
-        
-        # Remove any remaining redundant chromosome columns - keep only 'chrom'
-        redundant_chr_cols = ['#CHROM', 'CHR', 'chrom.1']
-        comprehensive_var_info.drop(columns=redundant_chr_cols, inplace=True, errors='ignore')
-        
+        # Remove any remaining allele columns that might exist
+        redundant_allele_cols = ['REF', 'ALT', 'COUNTED', 'PROVISIONAL_REF?']
+        comprehensive_var_info.drop(columns=redundant_allele_cols, inplace=True, errors='ignore')
+            
         # Ensure pos is integer if it exists
         if 'pos' in comprehensive_var_info.columns:
             comprehensive_var_info['pos'] = comprehensive_var_info['pos'].astype(int)
+        
+        # Reorder columns for better readability: id before snp_name_alt, chrom before pos
+        desired_column_order = ['id', 'snp_name', 'snp_name_alt', 'locus', 'rsid', 'hg38', 'hg19', 'chrom', 'pos', 'a1', 'a2', 'ancestry', 'submitter_email', 'precision_medicine', 'pipeline']
+        frequency_columns = ['ALT_FREQS', 'OBS_CT', 'F_MISS']
+        
+        # Build final column order: desired columns first, then frequency columns, then any remaining columns
+        available_desired_cols = [col for col in desired_column_order if col in comprehensive_var_info.columns]
+        available_freq_cols = [col for col in frequency_columns if col in comprehensive_var_info.columns]
+        remaining_cols = [col for col in comprehensive_var_info.columns if col not in available_desired_cols + available_freq_cols]
+        
+        final_column_order = available_desired_cols + available_freq_cols + remaining_cols
+        comprehensive_var_info = comprehensive_var_info[final_column_order]
         
         # Save the comprehensive variant information file (replaces both var_info and subset_snps)
         var_info_output_path = f"{out_path}_var_info.csv"
@@ -413,8 +411,8 @@ class CarrierCombiner:
                     var_info.loc[fix_mask, col_name] = 0.0
     
     def _cleanup_columns(self, var_info: pd.DataFrame) -> None:
-        """Remove unnecessary columns like F_MISS_SIMPLE_AVG and chrom.1"""
-        columns_to_remove = ['F_MISS_SIMPLE_AVG', 'chrom.1']
+        """Remove unnecessary columns like F_MISS_SIMPLE_AVG and redundant chromosome/allele columns"""
+        columns_to_remove = ['F_MISS_SIMPLE_AVG', 'chrom.1', 'CHR', '#CHROM', 'REF', 'ALT', 'COUNTED', 'PROVISIONAL_REF?']
         var_info.drop(columns=columns_to_remove, inplace=True, errors='ignore')
         print(f"Cleaned up unnecessary columns: {[col for col in columns_to_remove if col in var_info.columns]}")
     
