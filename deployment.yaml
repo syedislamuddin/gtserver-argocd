@@ -19,6 +19,6 @@ spec:
     spec:
       containers:
       - name: sample-app
-        image: europe-west4-docker.pkg.dev/GOOGLE_CLOUD_PROJECT/gt-server/sample:COMMIT_SHA
+        image: europe-west4-docker.pkg.dev/gp2-code-test-env/gt-server/sample:5831c48
         ports:
         - containerPort: 8080
