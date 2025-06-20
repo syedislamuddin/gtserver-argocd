@@ -191,7 +191,7 @@ class CarrierExtractor:
         comprehensive_var_info.drop(columns=columns_to_drop, inplace=True, errors='ignore')
         
         # Remove any remaining allele columns that might exist
-        redundant_allele_cols = ['REF', 'ALT', 'COUNTED', 'PROVISIONAL_REF?']
+        redundant_allele_cols = ['REF', 'ALT', 'PROVISIONAL_REF?']
         comprehensive_var_info.drop(columns=redundant_allele_cols, inplace=True, errors='ignore')
             
         # Ensure pos is integer if it exists
@@ -199,7 +199,12 @@ class CarrierExtractor:
             comprehensive_var_info['pos'] = comprehensive_var_info['pos'].astype(int)
         
         # Reorder columns for better readability: id before snp_name_alt, chrom before pos
-        desired_column_order = ['id', 'snp_name', 'snp_name_alt', 'locus', 'rsid', 'hg38', 'hg19', 'chrom', 'pos', 'a1', 'a2', 'ancestry', 'submitter_email', 'precision_medicine', 'pipeline']
+        desired_column_order = [
+            'id', 'snp_name', 'snp_name_alt', 'locus', 'rsid', 
+            'hg38', 'hg19', 'chrom', 'pos', 'a1', 'a2', 'COUNTED',
+            'ancestry', 'submitter_email', 'precision_medicine', 'pipeline'
+            ]
+        
         frequency_columns = ['ALT_FREQS', 'OBS_CT', 'F_MISS']
         
         # Build final column order: desired columns first, then frequency columns, then any remaining columns
