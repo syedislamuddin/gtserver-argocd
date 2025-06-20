@@ -16,7 +16,7 @@ d = {"email":"syed@datatecnica.com", "storage_type": "local", "pfile": "syed-tes
 
 # Headers with the API key
 headers = {
-    "X-API-KEY": "M2hIQXgyRkc5VTVXUzB5ampIYnE2TU1sTUhjOUxJUW5RZkxIWDBlZHdHdmlkQS13dFY=", #"API-KEY",
+    "X-API-KEY": "API-KEY",
     "Content-Type": "application/json"
 }
 #k8s cluster link
