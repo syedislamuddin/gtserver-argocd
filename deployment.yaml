@@ -19,6 +19,6 @@ spec:
     spec:
       containers:
       - name: sample-app
-        image: us-east1-docker.pkg.dev/gp2-code-test-env/syed-test/testing/genotools-server/apps/gp2-browser-app:latest #europe-west4-docker.pkg.dev/gp2-code-test-env/gt-server/sample:5831c48
+        image: europe-west4-docker.pkg.dev/gp2-code-test-env/gt-server/sample:5831c48
         ports:
         - containerPort: 8080
