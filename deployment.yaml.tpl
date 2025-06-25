@@ -1,25 +1,24 @@
 ---
 ## Deployment ###
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: springapp
-  namespace: default
+  name: sample-deployment
+  namespace: argocd
   labels:
-    app: springapp
+    app: sample-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: springapp
+      app: sample-app
   template:
     metadata:
       labels:
-        app: springapp
+        app: sample-app
     spec:
       containers:
-      - name: springapp
-        image: asia-docker.pkg.dev/GOOGLE_CLOUD_PROJECT/my-repo/springapp:COMMIT_SHA
+      - name: sample-app
+        image: europe-west4-docker.pkg.dev/GOOGLE_CLOUD_PROJECT/gt-server/sample:COMMIT_SHA
         ports:
         - containerPort: 8080
