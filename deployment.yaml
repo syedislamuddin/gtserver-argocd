@@ -19,6 +19,6 @@ spec:
     spec:
       containers:
       - name: sample-app
-        image: europe-west4-docker.pkg.dev/gp2-code-test-env/gt-server/sample:7c07239
+        image: europe-west4-docker.pkg.dev/gp2-code-test-env/gt-server/sample:f462dc0
         ports:
         - containerPort: 8080
