@@ -31,7 +31,7 @@ steps:
 
 #### Building Docker Image for genotracker-api ####
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'europe-west4-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/genotracker-api:$SHORT_SHA', '-t', 'europe-west4-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/genotracker-api:${_IMAGE_TAG}', '-f', 'microservices/genotracker-api/Dockerfile', 'microservices/genotracker-api/' ]
+  args: [ 'build', '-t', 'europe-west4-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/genotracker-api:$SHORT_SHA', '-t', 'europe-west4-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/genotracker-api:${_IMAGE_TAG}', '-f', 'microservices/genotracker/Dockerfile', 'microservices/genotracker/' ]
   id: 'create docker image for genotracker-api'
 
 #### Pushing Docker Image for genotracker-api ####
